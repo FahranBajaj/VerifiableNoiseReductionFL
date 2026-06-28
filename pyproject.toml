@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "FederatedLearning2026"
+version = "0.0.1"
+dependencies = [
+    "flwr[simulation]>=1.28.0",
+    "torch==2.12.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.flwr.app]
+flwr-version-target = "1.31.0"
+
+[tool.flwr.app.components]
+serverapp = "server_app:app"
+clientapp = "client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 3
+fraction-evaluate = 1
+local-epochs = 1
+learning-rate = 0.1
+batch-size = 32
+save-model = false
+noise-multiplier = 0.1
+max-norm = 1
