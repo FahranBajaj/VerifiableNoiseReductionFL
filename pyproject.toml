@@ -29,3 +29,4 @@ batch-size = 32
 save-model = false
 noise-multiplier = 0.1
 max-norm = 1
+reproducible = true
