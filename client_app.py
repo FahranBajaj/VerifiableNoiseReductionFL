@@ -1,11 +1,17 @@
 """pytorchexample: A Flower / PyTorch app."""
 
 import torch
-from flwr.app import Context, Message, RecordDict, ConfigRecord
+from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord
 from flwr.clientapp import ClientApp
 import model_loading
 import data_loading
 import math
+from collections import OrderedDict
+import random
+from opacus import PrivacyEngine
+import pickle
+
+import util
 
 
 # Flower ClientApp
@@ -22,8 +28,8 @@ def train(msg: Message, context: Context):
         if config["Malicious"]:
             context.state["Malicious"] = True
 
-        if !config["Active"]:
-            return Message(content = RecordDict({"config": ConfigRecord({"Active" : False})}), reply_to = msg)
+        if not config["Active"]:
+            return Message(content = RecordDict(configs_records = {"fitres.metrics" : ConfigRecord({"active" : False})}), reply_to = msg)
 
     #TODO: if not and context.state doesn't say whether we're malicious or honest
         #then log a warning and return nothing or fail or something
@@ -41,8 +47,8 @@ def train(msg: Message, context: Context):
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
     model.to(device)
-
-    optimizer = torch.optim.SGD(model.parameters(), lr = context.run_config["learning-rate"])
+    learning_rate = context.run_config["learning-rate"]
+    optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
     #don't need secure mode since we don't add noise at this step
     privacy_engine = PrivacyEngine(secure_mode=False) 
@@ -68,10 +74,10 @@ def train(msg: Message, context: Context):
             optimizer.step()
 
     #add nosie
-    state = private_model.state_dict()
-    #Potential TODO: Change these data structures to make them easier to deal with for encryption, inspection, aggregation
-    plaintext_state = OrderedDict.fromkeys(state.keys())
-    encrypted_state = OrderedDict.fromkeys(state.keys())
+    #currently, model state is communicated as a 1-dimensional tensor
+    state = util.state_dict_to_vec(private_model.state_dict()).to(device)
+    plaintext_weights = torch.tensor().to(device) #initialize variables for later use
+    encrypted_weights = torch.tensor().to(device)
 
     #should be equivalent to noise multiplier computed in DP accounting notebook, NOT the "ratio"
     #Potential TODO: compute noise multiplier somewhere in code instead of inputting it in the config file
@@ -81,22 +87,36 @@ def train(msg: Message, context: Context):
     trusted_multiplier = 1/math.sqrt(trusted_parties-1)
 
     if context.run_config["reproducible"]:
-        for name, tensor in state.items():
-            std = torch.ones_like(tensor)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-            plaintext_state[name] = tensor + torch.normal(0, std).to(device)
-            encrypted_state[name] = tensor + torch.normal(0, std*trusted_multiplier).to(device)
+        std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
+        plaintext_weights = state + torch.normal(0, std).to(device)
+        encrypted_weights = state + torch.normal(0, std*trusted_multiplier).to(device)
     else:
         rng = random.SystemRandom()
-        for name, tensor in state.items():
-            std = noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-            big_noise = torch.tensor([rng.gauss(0, std) for _ in range(tensor.numel())]).reshape(tensor.shape).to(device)
-            small_noise = torch.tensor([rng.gauss(0, std*trusted_multiplier) for _ in range(tensor.numel())]).reshape(tensor.shape).to(device)
-            plaintext_state[name] = tensor + big_noise
-            encrypted_state[name] = tensor + small_noise
+        std = noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
+        big_noise = torch.tensor([rng.gauss(0, std) for _ in range(state.numel())]).to(device)
+        small_noise = torch.tensor([rng.gauss(0, std) for _ in range(state.numel())]).to(device)
+        plaintext_weights = state + big_noise
+        encrypted_weights = state + small_noise
 
     #write reply
+    #TODO: encryption, ZK proof
 
-    raise NotImplementedError()
+    #Serialize model state for communication
+    plaintext_weights = pickle.dumps(plaintext_weights)
+    encrypted_weights = pickle.dumps(encrypted_weights)
+    message_payload = ConfigRecord({
+        "active" : True, 
+        "plaintext-weights": plaintext_weights, 
+        "encrypted-weights": encrypted_weights
+        })
+    num_examples_record = MetricRecord({"num_examples": len(private_train_loader.dataset)})
+    return Message(
+        content = RecordDict(
+            configs_records = {"fitres.metrics" : message_payload}, 
+            metrics_records = {"fitres.num_examples": num_examples_record}
+        ), reply_to = msg)
+
+    
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):

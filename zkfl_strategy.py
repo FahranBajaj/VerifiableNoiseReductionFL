@@ -1,16 +1,30 @@
 from collections.abc import Callable
 from flwr.server.strategy.fedavg import FedAvg 
 from flwr.server.client_manager import ClientManager
+from flwr.server.client_proxy import ClientProxy
 from flwr.common import (
     MetricsAggregationFn,
     NDArrays,
     Parameters,
     Scalar,
+    EvaluateIns,
+    EvaluateRes,
     FitIns,
+    FitRes,
+    ArrayRecord
 )
 from flwr.common.logger import log
+from flwr.compat.common import recorddict_compat
 
 import random
+import pickle
+import numpy as np
+import torch
+from logging import WARNING
+
+import feddmc
+import util
+import model_loading
 
 class ZKFLStrategy(FedAvg):
     def __init__(
@@ -36,6 +50,9 @@ class ZKFLStrategy(FedAvg):
         fit_metrics_aggregation_fn: MetricsAggregationFn | None = None,
         evaluate_metrics_aggregation_fn: MetricsAggregationFn | None = None,
         inplace: bool = True,
+        pca_components: int = 5, 
+        feddmc_alpha: float = 0.8,
+        min_cluster_fraction: float = 0.03
     ) -> None:
         super().__init__(
             fraction_fit=fraction_fit, 
@@ -50,12 +67,22 @@ class ZKFLStrategy(FedAvg):
             initial_parameters=initial_parameters,
             fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
-            inplace=inplace)
+            inplace=inplace
+        )
         
-        if !(fraction_malicious >= 0 and fraction_malicious <= 1):
-            #TODO: consider changing this to use flower's built-in logger?
+        if not (fraction_malicious >= 0 and fraction_malicious <= 1):
             raise ValueError("fraction_malicious must be a number between 0 and 1 (inclusive)")
+        
+        if not (feddmc_alpha >= 0 and feddmc_alpha <= 1):
+            raise ValueError("feddmc_alpha must be a number between 0 and 1 (inclusive)")
+        
+        if not (min_cluster_fraction >= 0 and min_cluster_fraction < 0.5):
+            raise ValueError("min_cluster_fraction must be a nonnegative number strictly less than 0.5")
         self.fraction_malicious = fraction_malicious
+        self.pca_components = pca_components
+        self.alpha = feddmc_alpha
+        self.min_cluster_fraction = min_cluster_fraction
+        self.trust_scores = {}
 
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -133,7 +160,7 @@ class ZKFLStrategy(FedAvg):
         results : List[Tuple[ClientProxy, FitRes]]
             Successful updates from the previously selected and configured
             clients. Each pair of `(ClientProxy, FitRes)` constitutes a
-            successful update from one of the previously selected clients. Not
+            successful update from one of the previously selected clients. Note
             that not all previously selected clients are necessarily included in
             this list: a client might drop out and not submit a result. For each
             client that did not submit an update, there should be an `Exception`
@@ -153,10 +180,70 @@ class ZKFLStrategy(FedAvg):
             parameters, the updates received in this round are discarded, and
             the global model parameters remain the same.
         """
+        if not results:
+            return None, {}
+        # Do not aggregate if there are failures and failures are not accepted
+        if not self.accept_failures and failures:
+            return None, {}
 
-        #TODO: implement defensive scheme
-        #TODO: after that, average remaining results  
-            #(potentially by filtering out malicious clients and then calling super.aggregate_fit(...)
+        active_clients = []
+        plaintext_weights = np.array([])
+        ids_to_encrypted_weights = {}
+        for client_proxy, fit_res in results:
+            id = client_proxy.node_id
+            if not id in self.trust_scores.keys():
+                self.trust_scores[client_proxy.node_id] = 0.5
+            message_payload = fit_res.metrics
+            if message_payload["active"]:
+                active_clients.append(id)
+                #deserialize client's model weights
+                client_plaintext_weights = pickle.loads(message_payload["plaintext-weights"])
+                plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
+
+        #FedDMC
+        low_dim_weights = feddmc.pca(plaintext_weights, self.pca_components)
+        benign_idxs, malicious_idxs = feddmc.benign_and_malicious(low_dim_weights, int(self.min_cluster_fraction * len(active_clients)))
+
+        #Positive indicates that clustering did not fail
+        if len(benign_idxs) > 0:
+            feddmc.update_trust_scores(
+                self.trust_scores, 
+                [active_clients[int(index)] for index in benign_idxs], 
+                [active_clients[int(index)] for index in malicious_idxs], 
+                self.alpha)
+
+        #TODO: verify zk proofs
+
+        kept_results = []
+        for client_proxy, fit_res in results:
+            id = client_proxy.node_id
+            if id in active_clients and self.trust_scores[id] >= 0.5:
+                kept_results.append(fit_res)
+
+        #Average results from benign clients
+        #TODO: change to secure aggregation
+        aggregated_weights = torch.zeros_like(plaintext_weights[0])
+        total_examples = 0
+        for fit_res in kept_results:
+                encrypted_weights = pickle.loads(fit_res.metrics["encrypted-weights"])
+                total_examples += fit_res.num_examples
+                aggregated_weights += fit_res.num_examples * encrypted_weights
+            
+        aggregated_weights /= total_examples
+        aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), aggregated_weights))
+
+
+        # Aggregate custom metrics if aggregation fn was provided
+        metrics_aggregated = {}
+        if self.fit_metrics_aggregation_fn:
+            fit_metrics = [(res.num_examples, res.metrics) for res in kept_results]
+            metrics_aggregated = self.fit_metrics_aggregation_fn(fit_metrics)
+        elif server_round == 1:  # Only log this warning once
+            log(WARNING, "No fit_metrics_aggregation_fn provided")
+
+        return util.arrayrecord_to_parameters(aggregated_weights), metrics_aggregated
+
+        
 
     def configure_evaluate(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
