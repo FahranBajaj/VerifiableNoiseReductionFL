@@ -70,7 +70,7 @@ def train(msg: Message, context: Context):
     for _ in local_epochs:
         for batch in private_train_loader:
             optimizer.zero_grad()
-            criterion(batch["samples"].to(device), batch["labels"].to(device)).backward()
+            criterion(private_model(batch["samples"].to(device)), batch["labels"].to(device)).backward()
             optimizer.step()
 
     #add nosie
@@ -120,4 +120,27 @@ def train(msg: Message, context: Context):
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
-    raise NotImplementedError()
+    # Load the model and initialize it with the received weights
+    model = model_loading.Model()
+    model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
+    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+    model.to(device)
+    criterion = model_loading.loss()
+
+    # Load the data
+    partition_id = context.node_config["partition-id"]
+    num_partitions = context.node_config["num-partitions"]
+    batch_size = context.run_config["batch-size"]
+    _, test_loader = data_loading.load_data(partition_id, num_partitions, batch_size)
+
+    accuracy, loss = util.test(model, criterion, test_loader, device)
+
+    # Construct and return reply Message
+    metrics = {
+        "eval_acc": accuracy,
+        "eval_loss": loss,
+        "num-examples": len(test_loader.dataset),
+    }
+    metric_record = MetricRecord(metrics)
+    content = RecordDict({"metrics": metric_record})
+    return Message(content=content, reply_to=msg)

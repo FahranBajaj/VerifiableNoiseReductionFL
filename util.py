@@ -55,3 +55,19 @@ def arrayrecord_to_parameters(record: ArrayRecord, keep_input: bool) -> Paramete
             del record[key]
 
     return parameters
+
+@torch.no_grad() #tells torch we're not computing gradients, improves efficiency
+def test(model, criterion, test_loader, device):
+    model.to(device)
+    correct = 0
+    loss = 0.0
+    for batch in test_loader:
+        outputs = model(batch["samples"].to(device))
+        labels = batch["labels"].to(device)
+        loss += criterion(outputs, labels).item()
+        correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
+
+    accuracy = correct / len(test_loader.dataset)
+    loss = loss / len(test_loader)
+
+    return accuracy, loss

@@ -49,7 +49,6 @@ class ZKFLStrategy(FedAvg):
         initial_parameters: Parameters | None = None,
         fit_metrics_aggregation_fn: MetricsAggregationFn | None = None,
         evaluate_metrics_aggregation_fn: MetricsAggregationFn | None = None,
-        inplace: bool = True,
         pca_components: int = 5, 
         feddmc_alpha: float = 0.8,
         min_cluster_fraction: float = 0.03
@@ -67,7 +66,7 @@ class ZKFLStrategy(FedAvg):
             initial_parameters=initial_parameters,
             fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
-            inplace=inplace
+            inplace=False
         )
         
         if not (fraction_malicious >= 0 and fraction_malicious <= 1):
@@ -242,81 +241,3 @@ class ZKFLStrategy(FedAvg):
             log(WARNING, "No fit_metrics_aggregation_fn provided")
 
         return util.arrayrecord_to_parameters(aggregated_weights), metrics_aggregated
-
-        
-
-    def configure_evaluate(
-        self, server_round: int, parameters: Parameters, client_manager: ClientManager
-    ) -> list[tuple[ClientProxy, EvaluateIns]]:
-        """Configure the next round of evaluation.
-
-        Parameters
-        ----------
-        server_round : int
-            The current round of federated learning.
-        parameters : Parameters
-            The current (global) model parameters.
-        client_manager : ClientManager
-            The client manager which holds all currently connected clients.
-
-        Returns
-        -------
-        evaluate_configuration : List[Tuple[ClientProxy, EvaluateIns]]
-            A list of tuples. Each tuple in the list identifies a `ClientProxy` and the
-            `EvaluateIns` for this particular `ClientProxy`. If a particular
-            `ClientProxy` is not included in this list, it means that this
-            `ClientProxy` will not participate in the next round of federated
-            evaluation.
-        """
-
-    def aggregate_evaluate(
-        self,
-        server_round: int,
-        results: list[tuple[ClientProxy, EvaluateRes]],
-        failures: list[tuple[ClientProxy, EvaluateRes] | BaseException],
-    ) -> tuple[float | None, dict[str, Scalar]]:
-        """Aggregate evaluation results.
-
-        Parameters
-        ----------
-        server_round : int
-            The current round of federated learning.
-        results : List[Tuple[ClientProxy, FitRes]]
-            Successful updates from the
-            previously selected and configured clients. Each pair of
-            `(ClientProxy, FitRes` constitutes a successful update from one of the
-            previously selected clients. Not that not all previously selected
-            clients are necessarily included in this list: a client might drop out
-            and not submit a result. For each client that did not submit an update,
-            there should be an `Exception` in `failures`.
-        failures : List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]]
-            Exceptions that occurred while the server was waiting for client updates.
-
-        Returns
-        -------
-        aggregation_result : Tuple[Optional[float], Dict[str, Scalar]]
-            The aggregated evaluation result. Aggregation typically uses some variant
-            of a weighted average.
-        """
-
-    def evaluate(
-        self, server_round: int, parameters: Parameters
-    ) -> tuple[float, dict[str, Scalar]] | None:
-        """Evaluate the current model parameters.
-
-        This function can be used to perform centralized (i.e., server-side) evaluation
-        of model parameters.
-
-        Parameters
-        ----------
-        server_round : int
-            The current round of federated learning.
-        parameters: Parameters
-            The current (global) model parameters.
-
-        Returns
-        -------
-        evaluation_result : Optional[Tuple[float, Dict[str, Scalar]]]
-            The evaluation result, usually a Tuple containing loss and a
-            dictionary containing task-specific metrics (e.g., accuracy).
-        """
