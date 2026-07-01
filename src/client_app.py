@@ -7,9 +7,7 @@ from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord
 from flwr.clientapp import ClientApp
 from opacus import PrivacyEngine
 
-import model_loading
-import data_loading
-import util
+from src import model_loading, data_loading, util
 
 
 # Flower ClientApp

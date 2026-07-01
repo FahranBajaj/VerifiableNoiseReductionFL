@@ -2,10 +2,8 @@ import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 
-from zkfl_strategy import ZKFLStrategy
-import model_loading
-import data_loading
-import util
+from src import model_loading, data_loading, util
+from src.zkfl_strategy import ZKFLStrategy
 
 # Create ServerApp
 app = ServerApp()

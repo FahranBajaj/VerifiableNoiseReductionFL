@@ -23,9 +23,7 @@ from flwr.common import (
 from flwr.common.logger import log
 from flwr.compat.common import recorddict_compat
 
-import feddmc
-import util
-import model_loading
+from src import feddmc, util, model_loading
 
 class ZKFLStrategy(FedAvg):
     def __init__(

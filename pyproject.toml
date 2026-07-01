@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "FederatedLearning2026"
 version = "0.0.1"
-#versions mostly bsaed on what I have installed on my system
+#versions below mostly based on what I have installed on my system
 dependencies = [
     "flwr[simulation]>=1.28.0",
     "torch>=2.8.0",
@@ -22,8 +22,8 @@ publisher = "Fahran Bajaj"
 flwr-version-target = "1.31.0"
 
 [tool.flwr.app.components]
-serverapp = "server_app:app"
-clientapp = "client_app:app"
+serverapp = "src.server_app:app"
+clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
 num-server-rounds = 3
