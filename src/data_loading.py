@@ -65,4 +65,4 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
 
 def load_centralized_dataset():
     #TODO: find a good way to manage batch size?
-    return DataLoader(XORDataset(True, "train", 0)), DataLoader(XORDataset(True, "test", 0))
+    return DataLoader(XORDataset(True, "test", 0))

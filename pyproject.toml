@@ -32,6 +32,7 @@ fraction-malicious = 0
 local-epochs = 1
 learning-rate = 0.1
 batch-size = 2
+trusted-parties = 2
 save-model = false
 noise-multiplier = 0.1
 max-norm = 1

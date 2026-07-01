@@ -22,7 +22,7 @@ def main(grid: Grid, context: Context) -> None:
     global_model = model_loading.Model()
     arrays = ArrayRecord(global_model.state_dict())
 
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious)
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, pca_components = 2)
 
     result = strategy.start(
         grid=grid,

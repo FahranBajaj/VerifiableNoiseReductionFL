@@ -8,7 +8,6 @@ class Model(nn.Module):
             nn.Linear(2, 2),
             nn.ReLU(),
             nn.Linear(2, 2),
-            #nn.Softmax(0)
         )
 
     def forward(self, x):

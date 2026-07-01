@@ -16,56 +16,16 @@ def vec_to_state_dict(state_dict, weights):
 
     return state_dict
 
-#below taken from https://github.com/flwrlabs/flower/blob/main/framework/py/flwr/compat/common/recorddict_compat.py
-def arrayrecord_to_parameters(record: ArrayRecord, keep_input: bool) -> Parameters:
-    """Convert ParameterRecord to legacy Parameters.
-
-    Warnings
-    --------
-    Because `Array`s in `ArrayRecord` encode more information of the
-    array-like or tensor-like data (e.g their datatype, shape) than `Parameters` it
-    might not be possible to reconstruct such data structures from `Parameters` objects
-    alone. Additional information or metadata must be provided from elsewhere.
-
-    Parameters
-    ----------
-    record : ArrayRecord
-        The record to be conveted into Parameters.
-    keep_input : bool
-        A boolean indicating whether entries in the record should be deleted from the
-        input dictionary immediately after adding them to the record.
-
-    Returns
-    -------
-    parameters : Parameters
-        The parameters in the legacy format Parameters.
-    """
-    parameters = Parameters(tensors=[], tensor_type="")
-
-    for key in list(record.keys()):
-        if key != EMPTY_TENSOR_KEY:
-            parameters.tensors.append(record[key].data)
-
-        if not parameters.tensor_type:
-            # Setting from first array in record. Recall the warning in the docstrings
-            # of this function.
-            parameters.tensor_type = record[key].stype
-
-        if not keep_input:
-            del record[key]
-
-    return parameters
-
 @torch.no_grad() #tells torch we're not computing gradients, improves efficiency
 def test(model, criterion, test_loader, device):
     model.to(device)
     correct = 0
     loss = 0.0
     for batch in test_loader:
-        outputs = model(batch["samples"].to(device))
-        labels = batch["labels"].to(device)
+        outputs = model(batch[0].to(device))
+        labels = batch[1].to(device)
         loss += criterion(outputs, labels).item()
-        correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
+        correct += (torch.max(outputs.data, 1)[1] == torch.max(labels, 1)[1]).sum().item()
 
     accuracy = correct / len(test_loader.dataset)
     loss = loss / len(test_loader)
