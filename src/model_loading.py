@@ -1,15 +1,18 @@
 import torch
+import torch.nn as nn
 
-class Model(torch.nn.Module):
+class Model(nn.Module):
     def __init__(self):
-        raise NotImplementedError()
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Linear(2, 2),
+            nn.ReLU(),
+            nn.Linear(2, 2),
+            #nn.Softmax(0)
+        )
 
     def forward(self, x):
-        raise NotImplementedError()
+        return self.model(x)
     
 def loss():
-    """
-    Returns appropriate loss function for model
-    e.g. return torch.nn.CrossEntropyLoss()
-    """
-    raise NotImplementedError()
+    return torch.nn.CrossEntropyLoss()
