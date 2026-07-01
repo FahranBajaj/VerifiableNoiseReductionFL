@@ -5,15 +5,20 @@ build-backend = "hatchling.build"
 [project]
 name = "FederatedLearning2026"
 version = "0.0.1"
+#versions mostly bsaed on what I have installed on my system
 dependencies = [
     "flwr[simulation]>=1.28.0",
-    "torch==2.12.1",
+    "torch>=2.8.0",
+    "opacus>=1.6.0",
+    "numpy>=2.4.6",
+    "scikit-learn>=1.9.0"
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
 [tool.flwr.app]
+publisher = "Fahran Bajaj"
 flwr-version-target = "1.31.0"
 
 [tool.flwr.app.components]

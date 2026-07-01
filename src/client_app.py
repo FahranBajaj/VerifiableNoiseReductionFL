@@ -1,16 +1,14 @@
-"""pytorchexample: A Flower / PyTorch app."""
+import math
+import random
+import pickle
 
 import torch
 from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord
 from flwr.clientapp import ClientApp
+from opacus import PrivacyEngine
+
 import model_loading
 import data_loading
-import math
-from collections import OrderedDict
-import random
-from opacus import PrivacyEngine
-import pickle
-
 import util
 
 

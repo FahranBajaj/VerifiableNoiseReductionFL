@@ -1,4 +1,11 @@
+import random
+import pickle
 from collections.abc import Callable
+from logging import WARNING
+
+import numpy as np
+import torch
+
 from flwr.server.strategy.fedavg import FedAvg 
 from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
@@ -15,12 +22,6 @@ from flwr.common import (
 )
 from flwr.common.logger import log
 from flwr.compat.common import recorddict_compat
-
-import random
-import pickle
-import numpy as np
-import torch
-from logging import WARNING
 
 import feddmc
 import util
