@@ -72,7 +72,7 @@ class ZKFLStrategy(FedAvg):
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
     ) -> Iterable[Message]:
-        if server_round == 0:
+        if server_round == 1:
             log(INFO, "configure_train: configuring first round of training")
             #TODO: need to figure out if the first round is number 0 or 1
 
@@ -94,13 +94,14 @@ class ZKFLStrategy(FedAvg):
                         self.configrecord_key: conf
                     }), id, MessageType.TRAIN) for id, conf in ids_and_configs]
         
-        return super.configure_train(server_round, arrays, config, grid)
+        return super().configure_train(server_round, arrays, config, grid)
 
     def aggregate_train(
         self,
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
         valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
         if not valid_replies:
             return None, None
@@ -109,13 +110,13 @@ class ZKFLStrategy(FedAvg):
         plaintext_weights = np.array([])
         ids_to_ciphertexts = {}
         for reply in replies:
-            id = reply.reply_to.dst_node_id
-            records = reply.content.records
+            id = reply.metadata.src_node_id
+            records = reply.content
             if not id in self.trust_scores.keys():
                 self.trust_scores[id] = 0.5
             if records["config"]["active"]:
                 active_clients.append(id)
-                client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"]
+                client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
                 plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
                 ids_to_ciphertexts[id] = (next(iter(records.metric_records.values()))[self.weighted_by_key], pickle.loads(records["config"]["encrypted-weights"]))
 
@@ -132,12 +133,12 @@ class ZKFLStrategy(FedAvg):
                 self.alpha)
 
         #TODO: verify zk proofs
-        aggregated_weights = torch.zeros_like(plaintext_weights[0])
+        aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
         total_examples = 0
         for id in active_clients:
             if self.trust_scores[id] >= 0.5:
                 num_examples = ids_to_ciphertexts[id][0]
-                weights = ids_to_ciphertexts[id][1  ]
+                weights = ids_to_ciphertexts[id][1]
                 total_examples += num_examples
                 aggregated_weights += weights*num_examples
             

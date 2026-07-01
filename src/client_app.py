@@ -63,23 +63,23 @@ def train(msg: Message, context: Context):
     #train
     private_model.train()
     local_epochs = context.run_config["local-epochs"]
-    for _ in local_epochs:
+    for _ in range(local_epochs):
         for batch in private_train_loader:
             optimizer.zero_grad()
-            criterion(private_model(batch["samples"].to(device)), batch["labels"].to(device)).backward()
+            criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
             optimizer.step()
 
     #add nosie
     #currently, model state is communicated as a 1-dimensional tensor
     state = util.state_dict_to_vec(private_model.state_dict()).to(device)
-    plaintext_weights = torch.tensor().to(device) #initialize variables for later use
-    encrypted_weights = torch.tensor().to(device)
+    plaintext_weights = torch.tensor([]).to(device) #initialize variables for later use
+    encrypted_weights = torch.tensor([]).to(device)
 
     #should be equivalent to noise multiplier computed in DP accounting notebook, NOT the "ratio"
     #Potential TODO: compute noise multiplier somewhere in code instead of inputting it in the config file
     noise_multiplier = context.run_config["noise-multiplier"]
-    #TODO: configure number of trusted parties
-    trusted_parties = msg.content["config"]["trusted-parties"]
+    #TODO: make trusted parties a multiplier times the number of total parties? Would need to communicate total parties from server
+    trusted_parties = context.run_config["trusted-parties"]
     trusted_multiplier = 1/math.sqrt(trusted_parties-1)
 
     if context.run_config["reproducible"]:
