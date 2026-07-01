@@ -3,7 +3,7 @@ import random
 import pickle
 
 import torch
-from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord
+from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord, ArrayRecord
 from flwr.clientapp import ClientApp
 from opacus import PrivacyEngine
 
@@ -89,28 +89,28 @@ def train(msg: Message, context: Context):
     else:
         rng = random.SystemRandom()
         std = noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-        big_noise = torch.tensor([rng.gauss(0, std) for _ in range(state.numel())]).to(device)
-        small_noise = torch.tensor([rng.gauss(0, std) for _ in range(state.numel())]).to(device)
+        #use threadsafe .normalvariate() instead of .gauss() since we may have multiple clients running at once
+        big_noise = torch.tensor([rng.normalvariate(0, std) for _ in range(state.numel())]).to(device)
+        small_noise = torch.tensor([rng.normalvariate(0, std) for _ in range(state.numel())]).to(device)
         plaintext_weights = state + big_noise
         encrypted_weights = state + small_noise
 
     #write reply
     #TODO: encryption, ZK proof
 
-    #Serialize model state for communication
-    plaintext_weights = pickle.dumps(plaintext_weights)
+    plaintext_weights_record = ArrayRecord(torch_state_dict = {"plaintext-weights": plaintext_weights})
     encrypted_weights = pickle.dumps(encrypted_weights)
-    message_payload = ConfigRecord({
+    config_rec = ConfigRecord({
         "active" : True, 
-        "plaintext-weights": plaintext_weights, 
         "encrypted-weights": encrypted_weights
         })
-    num_examples_record = MetricRecord({"num_examples": len(private_train_loader.dataset)})
+    num_examples_record = MetricRecord({"num-examples": len(private_train_loader.dataset)})
     return Message(
-        content = RecordDict(
-            configs_records = {"fitres.metrics" : message_payload}, 
-            metrics_records = {"fitres.num_examples": num_examples_record}
-        ), reply_to = msg)
+        content = RecordDict(records = {
+            "plaintext-weights": plaintext_weights_record,
+            "config": config_rec,
+            "num-examples": num_examples_record
+        }), reply_to = msg)
 
     
 
