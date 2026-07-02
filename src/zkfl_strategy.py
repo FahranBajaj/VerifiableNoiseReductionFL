@@ -1,6 +1,6 @@
 import pickle
 from collections.abc import Callable, Iterable
-from logging import INFO
+from logging import INFO, DEBUG
 
 import numpy as np
 import torch
