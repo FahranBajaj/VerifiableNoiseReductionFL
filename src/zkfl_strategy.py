@@ -1,6 +1,6 @@
 import pickle
 from collections.abc import Callable, Iterable
-from logging import INFO
+from logging import INFO, DEBUG
 
 import numpy as np
 import torch
@@ -87,6 +87,8 @@ class ZKFLStrategy(FedAvg):
             for id, conf in ids_and_configs:
                 conf["Active"] = (id in active_ids)
                 conf["Malicious"] = (id in malicious_ids)
+
+            log(DEBUG, f"""\n\n\tConfiguring Clients:\n\t\tMalicious IDs: {[id % 100 for id in malicious_ids]}\n\t\tAll IDs: {[id % 100 for id in all_ids]}""")
             
             # Return messages
             return [Message(RecordDict({
@@ -126,11 +128,16 @@ class ZKFLStrategy(FedAvg):
 
         #Positive indicates that clustering did not fail
         if len(benign_idxs) > 0:
+            log(DEBUG, "Updating trust scores!")
             feddmc.update_trust_scores(
                 self.trust_scores, 
                 [active_clients[int(index)] for index in benign_idxs], 
                 [active_clients[int(index)] for index in malicious_idxs], 
                 self.alpha)
+        else:
+            log(DEBUG, "Not updating scores this round")
+            
+        log(DEBUG, f"""\n\n\tTrust Scores: {[(id % 100, score) for id, score in self.trust_scores.items()]}""")
 
         #TODO: verify zk proofs
         aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)

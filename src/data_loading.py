@@ -51,8 +51,8 @@ class XORDataset(Dataset):
             self.data = torch.cat((data[task + "0"], data[task + "1"]))
             self.targets = torch.cat((targets[task + "0"], targets[task + "1"]))
         else:
-            self.data = data[task + str(id)]
-            self.targets = targets[task + str(id)]
+            self.data = data[task + str(id % 2)]
+            self.targets = targets[task + str(id % 2)]
 
     def __len__(self):
         return len(self.data)

@@ -1,10 +1,12 @@
 import math
 import random
 import pickle
+from logging import ERROR, DEBUG
 
 import torch
 from flwr.app import Context, Message, RecordDict, ConfigRecord, MetricRecord, ArrayRecord
 from flwr.clientapp import ClientApp
+from flwr.common.logger import log
 from opacus import PrivacyEngine
 
 from src import model_loading, data_loading, util
@@ -21,14 +23,14 @@ def train(msg: Message, context: Context):
     #Check message to see if this is the first round
     config = msg.content["config"]
     if "Malicious" in config.keys():
-        if config["Malicious"]:
-            context.state["Malicious"] = True
+        context.state["Malicious"] = ConfigRecord({"Malicious": config["Malicious"]})
 
         if not config["Active"]:
             return Message(content = RecordDict(configs_records = {"fitres.metrics" : ConfigRecord({"active" : False})}), reply_to = msg)
 
-    #TODO: if not and context.state doesn't say whether we're malicious or honest
-        #then log a warning and return nothing or fail or something
+    if "Malicious" not in context.state.keys():
+        log(ERROR, f"No record of whether node {context.node_config["partition-id"]} is malicious")
+        raise RuntimeError(f"No record of whether node {context.node_config["partition-id"]} is malicious")
 
      #load data
     partition_id = context.node_config["partition-id"]
