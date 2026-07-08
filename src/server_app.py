@@ -1,3 +1,5 @@
+import math
+
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
@@ -22,7 +24,8 @@ def main(grid: Grid, context: Context) -> None:
     global_model = model_loading.Model()
     arrays = ArrayRecord(global_model.state_dict())
 
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious)
+    expected_std = context.run_config["noise-multiplier"]*context.run_config["learning-rate"]*context.run_config["max-norm"]*context.run_config["local-epochs"]*math.sqrt(1+(1/(context.run_config["trusted-parties"] - 1)))/context.run_config["batch-size"]
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, expected_std = expected_std)
 
     result = strategy.start(
         grid=grid,

@@ -1,9 +1,10 @@
-import pickle
 from collections.abc import Callable, Iterable
-from logging import INFO, DEBUG
+from logging import INFO, DEBUG, WARNING
+import random
 
 import numpy as np
 import torch
+import tenseal as ts
 
 from flwr.serverapp import Grid
 from flwr.serverapp.strategy.fedavg import FedAvg
@@ -18,7 +19,8 @@ from flwr.app import (
 )
 from flwr.common.logger import log
 
-from src import feddmc, util, model_loading
+from src import feddmc, util, model_loading, ckks
+from src.anderson_darling import anderson_darling, CRITICAL_THRESHOLDS
 
 class ZKFLStrategy(FedAvg):
     def __init__(
@@ -40,7 +42,9 @@ class ZKFLStrategy(FedAvg):
         ) = None,
         pca_components: int = 5,
         feddmc_alpha: float = 0.8,
-        min_cluster_fraction: float = 0.03
+        min_cluster_fraction: float = 0.03,
+        anderson_darling_significance: float = 0.05,
+        expected_std = 0
     ) -> None:
         super().__init__(
             fraction_train, 
@@ -63,30 +67,58 @@ class ZKFLStrategy(FedAvg):
         
         if not (min_cluster_fraction >= 0 and min_cluster_fraction < 0.5):
             raise ValueError("min_cluster_fraction must be a nonnegative number strictly less than 0.5")
-        self.fraction_malicious = fraction_malicious
-        self.pca_components = pca_components
-        self.alpha = feddmc_alpha
-        self.min_cluster_fraction = min_cluster_fraction
-        self.trust_scores = {}
+        if not (anderson_darling_significance in CRITICAL_THRESHOLDS.keys()):
+            raise ValueError("Anderson-Darling significance level must be one of 0.01, 0.025, 0.05, 0.1, or 0.15")
+        self.fraction_malicious: float = fraction_malicious
+        self.pca_components: int = pca_components
+        self.feddmc_alpha: float = feddmc_alpha
+        self.min_cluster_fraction: float = min_cluster_fraction
+        self.anderson_darling_alpha: float = anderson_darling_significance
+        self.expected_std: float = expected_std
+        self.trust_scores: dict[int, float] = {}
+        self.num_model_updates: int = 0
+        self.current_nodes: list[int] = []
+        self.trained_this_round: bool = True
+        self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
+        self.ids_to_num_examples: dict[int, int]
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
     ) -> Iterable[Message]:
         if server_round == 1:
             log(INFO, "configure_train: configuring first round of training")
-            #TODO: need to figure out if the first round is number 0 or 1
+            self.trained_this_round = True
+            self.current_ckks_context = ckks.generage_ckks_context()
+            public_context = self.current_ckks_context.copy()
+            public_context.make_context_public()
+            public_context = public_context.serialize()
 
             #select all clients
             all_ids = grid.get_node_ids()
+            config["Instruction"] = "TRAIN"
+            config["CKKS-context"] = public_context
+            config["server-round"] = server_round
             ids_and_configs = [(id, config.copy()) for id in all_ids]
             total_nodes = len(ids_and_configs)
             
             #pick clients to be active and malicious
-            active_ids, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, max(self.min_train_nodes, int(total_nodes*self.fraction_train)))
+            self.current_nodes, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, max(self.min_train_nodes, int(total_nodes*self.fraction_train)))
             malicious_ids, all_ids = strategy_utils.sample_nodes(grid, 0, int(total_nodes*self.fraction_malicious))
             for id, conf in ids_and_configs:
-                conf["Active"] = (id in active_ids)
+                conf["Active"] = (id in self.current_nodes)
                 conf["Malicious"] = (id in malicious_ids)
+            log(
+                INFO,
+                "configure_train: Sampled %s nodes (out of %s)",
+                len(self.current_nodes),
+                len(all_ids),
+            )
+            log(
+                INFO,
+                "configure_train: Sampled %s malicious nodes (out of %s)",
+                len(malicious_ids),
+                len(all_ids),
+            )
             
             # Return messages
             return [Message(RecordDict({
@@ -94,7 +126,44 @@ class ZKFLStrategy(FedAvg):
                         self.configrecord_key: conf
                     }), id, MessageType.TRAIN) for id, conf in ids_and_configs]
         
-        return super().configure_train(server_round, arrays, config, grid)
+        if not self.current_nodes:
+            #Select some nodes and have them train
+            log(INFO, "configure_train: selecting nodes to train")
+            self.trained_this_round = True
+            self.current_ckks_context = ckks.generage_ckks_context() #need new context, releasing CKKS decryptions can leak secret key
+            public_context = self.current_ckks_context.copy()
+            public_context.make_context_public()
+            public_context = public_context.serialize()
+
+            if self.fraction_train == 0.0:
+                log(WARNING, "configure_train: fraction_train is 0 so no nodes were selected")
+                return []
+            
+            #select nodes
+            num_nodes = int(len(list(grid.get_node_ids())) * self.fraction_train)
+            sample_size = max(num_nodes, self.min_train_nodes)
+            self.current_nodes, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, sample_size)
+            log(
+                INFO,
+                "configure_train: Sampled %s nodes (out of %s)",
+                len(self.current_nodes),
+                len(all_ids),
+            )
+
+            config["Instruction"] == "TRAIN"
+            config["CKKS-context"] = public_context
+            config["server-round"] = server_round
+            self.trained_this_round = True
+        else:
+            #Tell nodes from last round to send their weights
+            log(INFO, "configure_train: gathering plaintext weights from previously-sampled nodes")
+            self.trained_this_round = False
+            config["Instruction"] == "SENDWEIGHTS"
+            config["server-round"] = server_round
+            self.trained_this_round = False
+
+        record = RecordDict({self.arrayrecord_key: arrays, self.configrecord_key: config})
+        return self._construct_messages(record, self.current_nodes, MessageType.TRAIN)
 
     def aggregate_train(
         self,
@@ -106,50 +175,85 @@ class ZKFLStrategy(FedAvg):
         if not valid_replies:
             return None, None
         
-        active_clients = []
-        plaintext_weights = np.array([])
-        ids_to_ciphertexts = {}
-        for reply in replies:
-            id = reply.metadata.src_node_id
-            records = reply.content
-            if not id in self.trust_scores.keys():
-                self.trust_scores[id] = 0.5
-            if records["config"]["active"]:
-                active_clients.append(id)
-                client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
-                plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
-                ids_to_ciphertexts[id] = (next(iter(records.metric_records.values()))[self.weighted_by_key], pickle.loads(records["config"]["encrypted-weights"]))
+        if self.trained_this_round:
+            #We receive ciphertexts 
+            #Either aggregate or inspect
+            inspecting = random.randint(0, 1)
+            self.ids_to_ciphertexts = {}
+            self.ids_to_num_examples = {}
+            self.total_examples = 0
+            for reply in replies:
+                id = reply.metadata.src_node_id
+                records = reply.content
+                if not id in self.trust_scores.keys():
+                    self.trust_scores[id] = 0.5
+                if records["config"]["active"]:
+                    serialized_ciphertet = records["config"]["encrypted-difference"]
+                    num_examples = records["num-examples"]["num-examples"]
+                    if inspecting:
+                        difference = ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt()
+                        new_trust_score = 1 - anderson_darling(difference, 0, self.expected_std*num_examples, self.anderson_darling_alpha)
+                        self.trust_scores[id] = self.trust_scores[id] * self.feddmc_alpha + (1-self.feddmc_alpha)*new_trust_score
+                    else:
+                        #keep ciphertexts for aggregation and decryption next round
+                        #it would be nice to decrypt now, but we don't know which clients 
+                        #we'll include in aggregation until we inspect model weights
+                        self.ids_to_ciphertexts[id] = serialized_ciphertet
+                        self.ids_to_num_examples[id] = num_examples
+                        self.total_examples += num_examples
 
-        #FedDMC
-        low_dim_weights = feddmc.pca(plaintext_weights, self.pca_components)
-        benign_idxs, malicious_idxs = feddmc.benign_and_malicious(low_dim_weights, int(self.min_cluster_fraction * len(active_clients)))
+            if inspecting:
+                self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+                
+            return None, None #no global update was performed
+                       
+        else:
+            #We receive plaintext model weights to inspect and aggregate
+            active_clients = []
+            ids_to_plaintext_weights = {}
+            plaintext_weights = np.array([])
+            for reply in replies:
+                id = reply.metadata.src_node_id
+                records = reply.content
+                if not id in self.trust_scores.keys():
+                    self.trust_scores[id] = 0.5
+                if records["config"]["active"]:
+                    active_clients.append(id)
+                    client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
+                    plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
+                    ids_to_plaintext_weights[id] = plaintext_weights
 
-        #Positive indicates that clustering did not fail
-        if len(benign_idxs) > 0:
-            feddmc.update_trust_scores(
-                self.trust_scores, 
-                [active_clients[int(index)] for index in benign_idxs], 
-                [active_clients[int(index)] for index in malicious_idxs], 
-                self.alpha)
+            #FedDMC
+            low_dim_weights = feddmc.pca(plaintext_weights, self.pca_components)
+            benign_idxs, malicious_idxs = feddmc.benign_and_malicious(low_dim_weights, int(self.min_cluster_fraction * len(active_clients)))
 
-        #TODO: verify zk proofs
-        aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
-        total_examples = 0
-        for id in active_clients:
-            if self.trust_scores[id] >= 0.5:
-                num_examples = ids_to_ciphertexts[id][0]
-                weights = ids_to_ciphertexts[id][1]
-                total_examples += num_examples
-                aggregated_weights += weights*num_examples
-            
-        aggregated_weights /= total_examples
-        aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), aggregated_weights))
+            #Positive indicates that clustering did not fail
+            if len(benign_idxs) > 0:
+                feddmc.update_trust_scores(
+                    self.trust_scores, 
+                    [active_clients[int(index)] for index in benign_idxs], 
+                    [active_clients[int(index)] for index in malicious_idxs], 
+                    self.feddmc_alpha)
 
+            aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
+            aggregated_differneces = [0] * plaintext_weights[0].size
+            for id in active_clients:
+                if self.trust_scores[id] >= 0.5:
+                    aggregated_weights += ids_to_plaintext_weights[id]*self.ids_to_num_examples[id]
+                    aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
+                
+            aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces.decrypt()).to(device)) / self.total_examples
+            self.ids_to_ciphertexts = {}
+            self.ids_to_num_examples = {}
+            aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), torch.tensor(aggregated_weights)).to(device))
 
-        # Aggregate custom metrics if aggregation fn was provided
-        aggregated_metrics = self.train_metrics_aggr_fn(
-                [msg.content for msg in valid_replies],
-                self.weighted_by_key,
-        )
+            # Aggregate custom metrics if aggregation fn was provided
+            aggregated_metrics = self.train_metrics_aggr_fn(
+                    [msg.content for msg in valid_replies],
+                    self.weighted_by_key,
+            )
 
-        return aggregated_weights, aggregated_metrics
+            self.total_examples = 0
+            self.ids_to_num_examples = {}
+            self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+            return aggregated_weights, aggregated_metrics
