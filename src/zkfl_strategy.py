@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable
 from logging import INFO, DEBUG, WARNING
 import random
+import math
 
 import numpy as np
 import torch
@@ -150,7 +151,7 @@ class ZKFLStrategy(FedAvg):
                 len(all_ids),
             )
 
-            config["Instruction"] == "TRAIN"
+            config["Instruction"] = "TRAIN"
             config["CKKS-context"] = public_context
             config["server-round"] = server_round
             self.trained_this_round = True
@@ -158,7 +159,7 @@ class ZKFLStrategy(FedAvg):
             #Tell nodes from last round to send their weights
             log(INFO, "configure_train: gathering plaintext weights from previously-sampled nodes")
             self.trained_this_round = False
-            config["Instruction"] == "SENDWEIGHTS"
+            config["Instruction"] = "SENDWEIGHTS"
             config["server-round"] = server_round
             self.trained_this_round = False
 
@@ -179,6 +180,10 @@ class ZKFLStrategy(FedAvg):
             #We receive ciphertexts 
             #Either aggregate or inspect
             inspecting = random.randint(0, 1)
+            if inspecting:
+                log(INFO, f"aggregate_train: received {len(replies)} replies; decrypting and inspecting ciphertexts")
+            else:
+                log(INFO, f"aggregate_train: received {len(replies)} replies; saving ciphertexts for aggregation")
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
             self.total_examples = 0
@@ -209,6 +214,7 @@ class ZKFLStrategy(FedAvg):
                        
         else:
             #We receive plaintext model weights to inspect and aggregate
+            log(INFO, f"aggregate_train: received {len(replies)} replies, inspecting and aggregating plaintext weights")
             active_clients = []
             ids_to_plaintext_weights = {}
             plaintext_weights = np.array([])
@@ -221,7 +227,7 @@ class ZKFLStrategy(FedAvg):
                     active_clients.append(id)
                     client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
                     plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
-                    ids_to_plaintext_weights[id] = plaintext_weights
+                    ids_to_plaintext_weights[id] = client_plaintext_weights
 
             #FedDMC
             low_dim_weights = feddmc.pca(plaintext_weights, self.pca_components)
@@ -237,15 +243,25 @@ class ZKFLStrategy(FedAvg):
 
             aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
             aggregated_differneces = [0] * plaintext_weights[0].size
+            num_examples_sq_sum = 0 #to compute expected std of aggregated_differences
             for id in active_clients:
                 if self.trust_scores[id] >= 0.5:
-                    aggregated_weights += ids_to_plaintext_weights[id]*self.ids_to_num_examples[id]
+                    aggregated_weights += torch.tensor(ids_to_plaintext_weights[id]).to(device)*self.ids_to_num_examples[id]
                     aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
+                    num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
                 
-            aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces.decrypt()).to(device)) / self.total_examples
+            aggregated_differneces = aggregated_differneces.decrypt()
+            if anderson_darling(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.anderson_darling_alpha):
+                log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
+                self.total_examples = 0
+                self.ids_to_num_examples = {}
+                self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+                return None, None
+            
+            aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces).to(device)) / self.total_examples
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
-            aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), torch.tensor(aggregated_weights)).to(device))
+            aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), aggregated_weights.to(device)))
 
             # Aggregate custom metrics if aggregation fn was provided
             aggregated_metrics = self.train_metrics_aggr_fn(

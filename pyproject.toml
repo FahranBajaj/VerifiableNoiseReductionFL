@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "FederatedLearning2026"
 version = "0.0.1"
+requires-python = "==3.13.14"
 #versions below mostly based on what I have installed on my system
 dependencies = [
     "flwr[simulation]>=1.28.0",
@@ -38,4 +39,4 @@ trusted-parties = 2
 save-model = false
 noise-multiplier = 0.1
 max-norm = 1
-reproducible = true
+reproducible = false

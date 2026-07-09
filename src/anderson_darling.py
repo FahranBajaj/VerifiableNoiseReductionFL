@@ -25,8 +25,8 @@ def anderson_darling(
     
     z_scores_sorted = list(map(lambda x: (x-mu)/sigma, sorted(sample)))
     summation = 0
-    for i in range(1, len(n) + 1):
-        summation += (2*i - 1)*(math.log(norm.cdf(z_scores_sorted[i+1])) + math.log(1-z_scores_sorted[n-i]))
+    for i in range(1, n + 1):
+        summation += (2*i - 1)*(math.log(norm.cdf(z_scores_sorted[i-1])) + math.log(1-norm.cdf(z_scores_sorted[n-i])))
     
     a_sq = -1*n - summation/n
     return a_sq > CRITICAL_THRESHOLDS[alpha]

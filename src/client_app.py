@@ -1,6 +1,5 @@
 import math
 import random
-import pickle
 from logging import ERROR, DEBUG
 
 import torch
@@ -29,31 +28,34 @@ def train(msg: Message, context: Context):
         if not config["Active"]:
             return Message(content = RecordDict(configs_records = {"fitres.metrics" : ConfigRecord({"active" : False})}), reply_to = msg)
 
+    id = context.node_config["partition-id"]
+
     if "Malicious" not in context.state.keys():
-        log(ERROR, f"No record of whether node {context.node_config["partition-id"]} is malicious")
-        raise RuntimeError(f"No record of whether node {context.node_config["partition-id"]} is malicious")
+        log(ERROR, f"No record of whether node {id} is malicious")
+        raise RuntimeError(f"No record of whether node {id} is malicious")
     
     if config["Instruction"] == "SENDWEIGHTS":
         if "LocalWeights" not in context.state.keys():
-            log(ERROR, f"Node {context.node_config["partition-id"]} has no saved local model weights")
-            raise RuntimeError(f"Node {context.node_config["partition-id"]} has no saved local model weights")
+            log(ERROR, f"Node {id} has no saved local model weights")
+            raise RuntimeError(f"Node {id} has no saved local model weights")
             
-        plaintext_weights_record = ArrayRecord(torch_state_dict = {"plaintext-weights": context.state["LocalWeights"]})
+        plaintext_weights_record = context.state["LocalWeights"]
+        trivial_metric_record = MetricRecord({"num-examples": 1}) #strategy expects a metric record after every iteration
         del context.state["LocalWeights"]
         config_rec = ConfigRecord({"active" : True})
         return Message(
             content = RecordDict(records = {
                 "plaintext-weights": plaintext_weights_record,
+                "metric": trivial_metric_record,
                 "config": config_rec,
             }), reply_to = msg)
 
     elif config["Instruction"] == "TRAIN":
         #load data
-        partition_id = context.node_config["partition-id"]
         num_partitions = context.node_config["num-partitions"]
         batch_size = context.run_config["batch-size"]
         #TODO: implement the below function
-        trainloader, _ = data_loading.load_data(partition_id, num_partitions, batch_size)
+        trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
 
         #load model
         #TODO: implement below functions (when I have data, decide a model architecture)
@@ -114,17 +116,19 @@ def train(msg: Message, context: Context):
         encrypted_differences = len(private_train_loader.dataset)*(low_noise_weights - plaintext_weights)
 
         #store plaintext weights, write reply
-        context.state["LocalWeights"] = plaintext_weights
-        encrypted_weights = ts.ckks_vector(ts.context_from(context.state["CKKS-context"]), encrypted_differences).serialize()
+        context.state["LocalWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
+        encrypted_differences = ts.ckks_vector(ts.context_from(config["CKKS-context"]), encrypted_differences.cpu()).serialize()
         config_rec = ConfigRecord({
             "active" : True, 
-            "encrypted-weights": encrypted_weights
+            "encrypted-difference": encrypted_differences
             })
         num_examples_record = MetricRecord({"num-examples": len(private_train_loader.dataset)})
+        empty_array_rec = ArrayRecord({}) #strategy expects exactly one array record per iteration
         return Message(
             content = RecordDict(records = {
                 "config": config_rec,
-                "num-examples": num_examples_record
+                "num-examples": num_examples_record,
+                "array": empty_array_rec
             }), reply_to = msg)
     
     else:
