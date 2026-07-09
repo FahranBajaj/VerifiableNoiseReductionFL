@@ -85,7 +85,7 @@ def train(msg: Message, context: Context):
         for _ in range(local_epochs):
             for batch in private_train_loader:
                 optimizer.zero_grad()
-                criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
+                criterion(private_model(batch["img"].to(device)), batch["label"].to(device)).backward()
                 optimizer.step()
 
         #add nosie

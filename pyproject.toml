@@ -5,11 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "FederatedLearning2026"
 version = "0.0.1"
-requires-python = "==3.13.14"
 #versions below mostly based on what I have installed on my system
+requires-python = "==3.13.14" #tenseal does not work with python 3.14
 dependencies = [
     "flwr[simulation]>=1.28.0",
+    "flwr-datasets[vision]>=0.6.0",
     "torch>=2.8.0",
+    "torchvision==0.23.0",
     "opacus>=1.6.0",
     "numpy>=2.4.6",
     "scikit-learn>=1.9.0",
@@ -29,7 +31,7 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 3
+num-server-rounds = 10
 fraction-evaluate = 1
 fraction-malicious = 0
 local-epochs = 1

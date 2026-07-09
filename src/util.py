@@ -22,10 +22,10 @@ def test(model, criterion, test_loader, device):
     correct = 0
     loss = 0.0
     for batch in test_loader:
-        outputs = model(batch[0].to(device))
-        labels = batch[1].to(device)
+        outputs = model(batch["img"].to(device))
+        labels = batch["label"].to(device)
         loss += criterion(outputs, labels).item()
-        correct += (torch.max(outputs.data, 1)[1] == torch.max(labels, 1)[1]).sum().item()
+        correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
 
     accuracy = correct / len(test_loader.dataset)
     loss = loss / len(test_loader)
