@@ -12,7 +12,7 @@ from opacus import PrivacyEngine
 
 from src import model_loading, data_loading, util
 
-os.environ["RAY_memory_monitor_refresh_ms"] = "0"
+#os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 
 # Flower ClientApp
 app = ClientApp()
