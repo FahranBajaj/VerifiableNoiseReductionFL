@@ -12,7 +12,7 @@ from opacus import PrivacyEngine
 
 from src import model_loading, data_loading, util
 
-os.environ["RAY_memory_monitor_refresh_ms"] = "0"
+#os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 
 # Flower ClientApp
 app = ClientApp()
@@ -87,7 +87,7 @@ def train(msg: Message, context: Context):
         for _ in range(local_epochs):
             for batch in private_train_loader:
                 optimizer.zero_grad()
-                criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
+                criterion(private_model(batch["image"].to(device)), batch["label"].to(device)).backward()
                 optimizer.step()
 
         #add nosie
