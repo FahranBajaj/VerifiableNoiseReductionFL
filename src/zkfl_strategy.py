@@ -21,7 +21,7 @@ from flwr.app import (
 from flwr.common.logger import log
 
 from src import feddmc, util, model_loading, ckks
-from src.anderson_darling import anderson_darling, CRITICAL_THRESHOLDS
+from src.normality_tests import jarque_bera
 
 class ZKFLStrategy(FedAvg):
     def __init__(
@@ -44,7 +44,7 @@ class ZKFLStrategy(FedAvg):
         pca_components: int = 5,
         feddmc_alpha: float = 0.8,
         min_cluster_fraction: float = 0.03,
-        anderson_darling_significance: float = 0.05,
+        jarque_bera_significance: float = 0.05,
         expected_std = 0
     ) -> None:
         super().__init__(
@@ -68,13 +68,11 @@ class ZKFLStrategy(FedAvg):
         
         if not (min_cluster_fraction >= 0 and min_cluster_fraction < 0.5):
             raise ValueError("min_cluster_fraction must be a nonnegative number strictly less than 0.5")
-        if not (anderson_darling_significance in CRITICAL_THRESHOLDS.keys()):
-            raise ValueError("Anderson-Darling significance level must be one of 0.01, 0.025, 0.05, 0.1, or 0.15")
         self.fraction_malicious: float = fraction_malicious
         self.pca_components: int = pca_components
         self.feddmc_alpha: float = feddmc_alpha
         self.min_cluster_fraction: float = min_cluster_fraction
-        self.anderson_darling_alpha: float = anderson_darling_significance
+        self.jarque_bera_alpha: float = jarque_bera_significance
         self.expected_std: float = expected_std
         self.trust_scores: dict[int, float] = {}
         self.num_model_updates: int = 0
@@ -196,8 +194,8 @@ class ZKFLStrategy(FedAvg):
                     serialized_ciphertet = records["config"]["encrypted-difference"]
                     num_examples = records["num-examples"]["num-examples"]
                     if inspecting:
-                        difference = ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt()
-                        new_trust_score = 1 - anderson_darling(difference, 0, self.expected_std*num_examples, self.anderson_darling_alpha)
+                        difference = np.array(ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt())
+                        new_trust_score = 1 - jarque_bera(difference, 0, self.expected_std*num_examples, self.jarque_bera_alpha)
                         self.trust_scores[id] = self.trust_scores[id] * self.feddmc_alpha + (1-self.feddmc_alpha)*new_trust_score
                     else:
                         #keep ciphertexts for aggregation and decryption next round
@@ -250,8 +248,8 @@ class ZKFLStrategy(FedAvg):
                     aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
                     num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
                 
-            aggregated_differneces = aggregated_differneces.decrypt()
-            if anderson_darling(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.anderson_darling_alpha):
+            aggregated_differneces = np.array(aggregated_differneces.decrypt(), np.float32)
+            if jarque_bera(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
                 log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
                 self.total_examples = 0
                 self.ids_to_num_examples = {}

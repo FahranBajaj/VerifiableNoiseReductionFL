@@ -1,5 +1,7 @@
 import math
-from scipy.stats import norm
+
+from scipy.stats import norm, chi2
+import numpy as np
 
 CRITICAL_THRESHOLDS = {
     0.15: 1.61,
@@ -10,10 +12,10 @@ CRITICAL_THRESHOLDS = {
 }
 
 def anderson_darling(
-    sample: list[float], 
-    mu: float, 
-    sigma: float, 
-    alpha: float) -> bool:
+        sample: list[float], 
+        mu: float, 
+        sigma: float, 
+        alpha: float) -> bool:
     """Determines whether Anderson-Darling normality test with known mean, std rejects at given significance level"""
     
     if not(alpha in CRITICAL_THRESHOLDS.keys()):
@@ -31,3 +33,17 @@ def anderson_darling(
     a_sq = -1*n - summation/n
     return a_sq > CRITICAL_THRESHOLDS[alpha]
 
+def jarque_bera(sample: np.ndarray, mu: float, sigma: float, alpha: float) -> bool:
+    """Determines whether Jarque-Bera normality test with known mean, std rejects at given significance level"""
+
+    vector = sample.flatten()
+    vector = vector - mu
+    n = sample.size
+    if n < 25:
+        raise ValueError("Jarque-Bera test may not be suitable for fewer than 25 samples")
+    
+    skew = np.sum(np.power(vector, 3))/(n*sigma**3)
+    kurtosis = np.sum(np.power(vector, 4))/(n*sigma**4)
+    test_stat = n*(skew**2/15 + (kurtosis - 3)**2/96)
+    p_val = 1-chi2.cdf(test_stat, 2)
+    return p_val < alpha
