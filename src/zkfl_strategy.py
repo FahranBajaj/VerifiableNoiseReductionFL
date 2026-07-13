@@ -21,7 +21,7 @@ from flwr.app import (
 from flwr.common.logger import log
 
 from src import feddmc, util, model_loading, ckks
-from src.anderson_darling import anderson_darling, CRITICAL_THRESHOLDS
+from src.normality_tests import anderson_darling, CRITICAL_THRESHOLDS
 
 class ZKFLStrategy(FedAvg):
     def __init__(
