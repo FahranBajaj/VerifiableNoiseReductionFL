@@ -270,4 +270,5 @@ class ZKFLStrategy(FedAvg):
             self.total_examples = 0
             self.ids_to_num_examples = {}
             self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+            self.num_model_updates += 1
             return aggregated_weights, aggregated_metrics
