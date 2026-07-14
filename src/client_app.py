@@ -66,14 +66,14 @@ def train(msg: Message, context: Context):
             #TODO: implement the below function
             trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
 
-            #load model
-            #TODO: implement below functions (when I have data, decide a model architecture)
-            model = model_loading.Model()
-            criterion = model_loading.loss()
-            model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-            device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-            model.to(device)
-            optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
+        #load model
+        #TODO: implement below functions (when I have data, decide a model architecture)
+        model = model_loading.Model()
+        criterion = model_loading.loss()
+        model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+        model.to(device)
+        optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
             #don't need secure mode since we don't add noise at this step
             privacy_engine = PrivacyEngine(secure_mode=False) 
