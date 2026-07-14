@@ -37,13 +37,14 @@ def train(msg: Message, context: Context):
         raise RuntimeError(f"No record of whether node {id} is malicious")
     
     if config["Instruction"] == "SENDWEIGHTS":
-        if "LocalWeights" not in context.state.keys():
+        if "NoisyWeights" not in context.state.keys():
             log(ERROR, f"Node {id} has no saved local model weights")
             raise RuntimeError(f"Node {id} has no saved local model weights")
             
-        plaintext_weights_record = context.state["LocalWeights"]
+        plaintext_weights_record = context.state["NoisyWeights"]
         trivial_metric_record = MetricRecord({"num-examples": 1}) #strategy expects a metric record after every iteration
-        del context.state["LocalWeights"]
+        del context.state["NoisyWeights"]
+        del context.state["RawWeights"]
         config_rec = ConfigRecord({"active" : True})
         return Message(
             content = RecordDict(records = {
@@ -53,45 +54,48 @@ def train(msg: Message, context: Context):
             }), reply_to = msg)
 
     elif config["Instruction"] == "TRAIN":
-        #load data
-        num_partitions = context.node_config["num-partitions"]
-        batch_size = context.run_config["batch-size"]
-        #TODO: implement the below function
-        trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
+        if not ("RawWeights" in context.state.keys()):
+            #need to train and compute local weights
+            #load data
+            num_partitions = context.node_config["num-partitions"]
+            batch_size = context.run_config["batch-size"]
+            #TODO: implement the below function
+            trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
 
-        #load model
-        #TODO: implement below functions (when I have data, decide a model architecture)
-        model = model_loading.Model()
-        criterion = model_loading.loss()
-        model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-        model.to(device)
-        learning_rate = context.run_config["learning-rate"]
-        optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
+            #load model
+            #TODO: implement below functions (when I have data, decide a model architecture)
+            model = model_loading.Model()
+            criterion = model_loading.loss()
+            model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
+            device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+            model.to(device)
+            learning_rate = context.run_config["learning-rate"]
+            optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
-        #don't need secure mode since we don't add noise at this step
-        privacy_engine = PrivacyEngine(secure_mode=False) 
-        clipping_norm = context.run_config["max-norm"]
-        private_model, optimizer, private_train_loader = privacy_engine.make_private(
-            module=model,
-            optimizer=optimizer,
-            data_loader=trainloader,
-            noise_multiplier=0,
-            max_grad_norm=clipping_norm,
-            poisson_sampling = False
-        )
+            #don't need secure mode since we don't add noise at this step
+            privacy_engine = PrivacyEngine(secure_mode=False) 
+            clipping_norm = context.run_config["max-norm"]
+            private_model, optimizer, private_train_loader = privacy_engine.make_private(
+                module=model,
+                optimizer=optimizer,
+                data_loader=trainloader,
+                noise_multiplier=0,
+                max_grad_norm=clipping_norm,
+                poisson_sampling = False
+            )
 
-        #train
-        private_model.train()
-        local_epochs = context.run_config["local-epochs"]
-        for _ in range(local_epochs):
-            for batch in private_train_loader:
-                optimizer.zero_grad()
-                criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
-                optimizer.step()
+            #train
+            private_model.train()
+            local_epochs = context.run_config["local-epochs"]
+            for _ in range(local_epochs):
+                for batch in private_train_loader:
+                    optimizer.zero_grad()
+                    criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
+                    optimizer.step()
 
-        #add nosie
-        state = util.state_dict_to_vec(private_model.state_dict()).to(device)
+            context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
+
+        state = context.state["RawWeights"]["raw-weights"]
         plaintext_weights = torch.tensor([]).to(device) #initialize variables for later use
         low_noise_weights = torch.tensor([]).to(device)
         encrypted_differences = torch.tensor([]).to(device)
@@ -99,7 +103,7 @@ def train(msg: Message, context: Context):
         #should be equivalent to noise multiplier computed in DP accounting notebook, NOT the "ratio"
         #Potential TODO: compute noise multiplier somewhere in code instead of inputting it in the config file
         noise_multiplier = context.run_config["noise-multiplier"]
-        #TODO: make trusted parties a multiplier times the number of total parties? Would need to communicate total parties from server
+        #Potential TODO: make trusted parties a multiplier times the number of total parties? Would need to communicate total parties from server
         trusted_parties = context.run_config["trusted-parties"]
         trusted_multiplier = 1/math.sqrt(trusted_parties-1)
 
@@ -118,7 +122,7 @@ def train(msg: Message, context: Context):
         encrypted_differences = len(private_train_loader.dataset)*(low_noise_weights - plaintext_weights)
 
         #store plaintext weights, write reply
-        context.state["LocalWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
+        context.state["NoisyWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
         encrypted_differences = ts.ckks_vector(ts.context_from(config["CKKS-context"]), encrypted_differences.cpu()).serialize()
         config_rec = ConfigRecord({
             "active" : True, 
