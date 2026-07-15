@@ -54,11 +54,15 @@ def train(msg: Message, context: Context):
             }), reply_to = msg)
 
     elif config["Instruction"] == "TRAIN":
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+        learning_rate = context.run_config["learning-rate"]
+        clipping_norm = context.run_config["max-norm"]
+        local_epochs = context.run_config["local-epochs"]
+        batch_size = context.run_config["batch-size"]
         if not ("RawWeights" in context.state.keys()):
             #need to train and compute local weights
             #load data
             num_partitions = context.node_config["num-partitions"]
-            batch_size = context.run_config["batch-size"]
             #TODO: implement the below function
             trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
 
@@ -69,12 +73,10 @@ def train(msg: Message, context: Context):
             model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
             device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
             model.to(device)
-            learning_rate = context.run_config["learning-rate"]
             optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
             #don't need secure mode since we don't add noise at this step
             privacy_engine = PrivacyEngine(secure_mode=False) 
-            clipping_norm = context.run_config["max-norm"]
             private_model, optimizer, private_train_loader = privacy_engine.make_private(
                 module=model,
                 optimizer=optimizer,
@@ -83,19 +85,19 @@ def train(msg: Message, context: Context):
                 max_grad_norm=clipping_norm,
                 poisson_sampling = False
             )
+            context.state["NumExamples"] = MetricRecord({"num-examples": len(private_train_loader.dataset)})
 
-        #train
-        private_model.train()
-        local_epochs = context.run_config["local-epochs"]
-        for _ in range(local_epochs):
-            for batch in private_train_loader:
-                optimizer.zero_grad()
-                criterion(private_model(batch["img"].to(device)), batch["label"].to(device)).backward()
-                optimizer.step()
+            #train
+            private_model.train()
+            for _ in range(local_epochs):
+                for batch in private_train_loader:
+                    optimizer.zero_grad()
+                    criterion(private_model(batch["img"].to(device)), batch["label"].to(device)).backward()
+                    optimizer.step()
 
             context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
 
-        state = context.state["RawWeights"]["raw-weights"]
+        state = torch.tensor(context.state["RawWeights"]["raw-weights"].numpy()).to(device)
         plaintext_weights = torch.tensor([]).to(device) #initialize variables for later use
         low_noise_weights = torch.tensor([]).to(device)
         encrypted_differences = torch.tensor([]).to(device)
@@ -119,7 +121,9 @@ def train(msg: Message, context: Context):
             small_noise = torch.tensor([rng.normalvariate(0, std*trusted_multiplier) for _ in range(state.numel())]).to(device)
             plaintext_weights = state + big_noise
             low_noise_weights = state + small_noise
-        encrypted_differences = len(private_train_loader.dataset)*(low_noise_weights - plaintext_weights)
+
+        num_examples_record = context.state["NumExamples"]
+        encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
 
         #store plaintext weights, write reply
         context.state["NoisyWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
@@ -128,7 +132,6 @@ def train(msg: Message, context: Context):
             "active" : True, 
             "encrypted-difference": encrypted_differences
             })
-        num_examples_record = MetricRecord({"num-examples": len(private_train_loader.dataset)})
         empty_array_rec = ArrayRecord({}) #strategy expects exactly one array record per iteration
         return Message(
             content = RecordDict(records = {
