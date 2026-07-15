@@ -1,4 +1,5 @@
 import math
+import csv
 
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
@@ -6,6 +7,10 @@ from flwr.serverapp import Grid, ServerApp
 
 from src import model_loading, data_loading, util
 from src.zkfl_strategy import ZKFLStrategy
+import src.config
+
+WRITE_RESULTS_TO_FILE: bool
+FILE_TO_WRITE: str
 
 # Create ServerApp
 app = ServerApp()
@@ -19,6 +24,10 @@ def main(grid: Grid, context: Context) -> None:
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_malicious: float = context.run_config["fraction-malicious"]
     num_rounds: int = context.run_config["num-server-rounds"]
+    global WRITE_RESULTS_TO_FILE
+    global FILE_TO_WRITE
+    WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
+    FILE_TO_WRITE = context.run_config["results-directory"] + f"/{context.run_id}results.csv"
 
     # Load global model
     global_model = model_loading.Model()
@@ -42,21 +51,40 @@ def main(grid: Grid, context: Context) -> None:
         torch.save(state_dict, "final_model.pt")
 
 
-def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
+def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | None:
     """Evaluate model on central data."""
 
-    # Load the model and initialize it with the received weights
-    model = model_loading.Model()
-    model.load_state_dict(arrays.to_torch_state_dict())
-    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-    model.to(device)
-    criterion = model_loading.loss()
+    if server_round == src.config.last_update_round:
+        # Load the model and initialize it with the received weights
+        model = model_loading.Model()
+        model.load_state_dict(arrays.to_torch_state_dict())
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+        model.to(device)
+        criterion = model_loading.loss()
 
-    # Load entire test set
-    test_loader = data_loading.load_centralized_dataset()
+        # Load entire test set
+        test_loader = data_loading.load_centralized_dataset()
 
-    # Evaluate the global model on the test set
-    accuracy, loss = util.test(model, criterion, test_loader, device)
+        # Evaluate the global model on the test set
+        accuracy, loss = util.test(model, criterion, test_loader, device)
 
-    # Return the evaluation metrics
-    return MetricRecord({"accuracy": accuracy, "loss": loss})
+        #write results to file
+        global WRITE_RESULTS_TO_FILE
+        if WRITE_RESULTS_TO_FILE:
+            global FILE_TO_WRITE
+            with open(FILE_TO_WRITE, 'w', newline = '') as csvfile:
+                fieldnames = ["global_update_round, loss, accuracy"]
+                writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
+                if not csv.Sniffer().has_header():
+                    writer.writeheader()
+                    
+                writer.writerow({
+                    "global_update_round": src.config.total_model_updates,
+                    "loss": loss,
+                    "accuracy": accuracy
+                })
+
+        # Return the evaluation metrics
+        return MetricRecord({"accuracy": accuracy, "loss": loss})
+    
+    return None
