@@ -22,6 +22,7 @@ from flwr.common.logger import log
 
 from src import feddmc, util, model_loading, ckks
 from src.normality_tests import jarque_bera
+import src.config
 
 class ZKFLStrategy(FedAvg):
     def __init__(
@@ -75,7 +76,6 @@ class ZKFLStrategy(FedAvg):
         self.jarque_bera_alpha: float = jarque_bera_significance
         self.expected_std: float = expected_std
         self.trust_scores: dict[int, float] = {}
-        self.num_model_updates: int = 0
         self.current_nodes: list[int] = []
         self.trained_this_round: bool = True
         self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
@@ -270,5 +270,6 @@ class ZKFLStrategy(FedAvg):
             self.total_examples = 0
             self.ids_to_num_examples = {}
             self.current_nodes = [] #clear out list to indicate we select new clients next iteration
-            self.num_model_updates += 1
+            src.config.total_model_updates += 1
+            src.config.last_update_round = server_round
             return aggregated_weights, aggregated_metrics
