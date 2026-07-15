@@ -43,4 +43,4 @@ noise-multiplier = 0.1
 max-norm = 1
 reproducible = false
 write-results = false
-results-directory = "./results"
+results-directory = "results"
