@@ -1,5 +1,6 @@
 import math
 import csv
+import os
 
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
@@ -72,10 +73,10 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
         global WRITE_RESULTS_TO_FILE
         if WRITE_RESULTS_TO_FILE:
             global FILE_TO_WRITE
-            with open(FILE_TO_WRITE, 'w', newline = '') as csvfile:
-                fieldnames = ["global_update_round, loss, accuracy"]
+            with open(FILE_TO_WRITE, 'a', newline = '') as csvfile:
+                fieldnames = ["global_update_round", "loss", "accuracy"]
                 writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
-                if not csv.Sniffer().has_header():
+                if os.path.getsize(FILE_TO_WRITE) == 0:
                     writer.writeheader()
                     
                 writer.writerow({
