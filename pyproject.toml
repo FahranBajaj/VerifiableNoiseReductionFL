@@ -31,7 +31,7 @@ clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
 max-num-server-rounds = 3
-fraction-evaluate = 1
+fraction-evaluate = 0
 fraction-malicious = 0
 local-epochs = 1
 learning-rate = 0.1
