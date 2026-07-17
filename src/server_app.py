@@ -3,6 +3,7 @@ import csv
 import os
 
 import torch
+import dp_accounting
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 
@@ -16,6 +17,28 @@ FILE_TO_WRITE: str
 # Create ServerApp
 app = ServerApp()
 
+def compute_noise_multiplier(trusted_parties: int,
+                             target_epsilon: float,
+                             target_delta: float,
+                             global_model_updates: int) -> float:
+    
+    def create_mechanism(noise_multiplier):
+        gaussians=dp_accounting.dp_event.ComposedDpEvent([
+            dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=noise_multiplier),
+            dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=math.sqrt(trusted_parties)*noise_multiplier/(math.sqrt(trusted_parties-1)))
+        ])
+        
+        full_mechanism = dp_accounting.dp_event.SelfComposedDpEvent(event = gaussians, count = int(global_model_updates))
+        return full_mechanism
+
+    required_noise_multiplier = dp_accounting.mechanism_calibration.calibrate_dp_mechanism(
+        dp_accounting.pld.PLDAccountant, 
+        create_mechanism,
+        target_epsilon,
+        target_delta,
+        dp_accounting.mechanism_calibration.ExplicitBracketInterval(1, 200)) #200 is a loose upper bound for all the tests I'm running
+    
+    return required_noise_multiplier
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
@@ -28,6 +51,18 @@ def main(grid: Grid, context: Context) -> None:
     num_model_updates: int | None = context.run_config["num-model-updates"]
     if num_model_updates < 0:
         num_model_updates = None
+    num_trusted_parties: int = max(2, context.run_config["trusted-fraction"] * len(grid.get_node_ids()))
+    noise_multiplier: float = compute_noise_multiplier(
+        num_trusted_parties,
+        context.run_config["epsilon"],
+        context.run_config["delta"],
+        num_model_updates if num_model_updates is not None else max_num_rounds
+    )
+    msg_to_clients = ConfigRecord({
+        "noise-multiplier": noise_multiplier,
+        "trusted-parties": num_trusted_parties
+    })
+
     global WRITE_RESULTS_TO_FILE
     global FILE_TO_WRITE
     WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
@@ -43,7 +78,7 @@ def main(grid: Grid, context: Context) -> None:
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
-        train_config=None,
+        train_config=msg_to_clients,
         num_rounds=max_num_rounds,
         evaluate_fn=global_evaluate,
     )

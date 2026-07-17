@@ -102,11 +102,8 @@ def train(msg: Message, context: Context):
         low_noise_weights = torch.tensor([]).to(device)
         encrypted_differences = torch.tensor([]).to(device)
 
-        #should be equivalent to noise multiplier computed in DP accounting notebook, NOT the "ratio"
-        #Potential TODO: compute noise multiplier somewhere in code instead of inputting it in the config file
-        noise_multiplier = context.run_config["noise-multiplier"]
-        #Potential TODO: make trusted parties a multiplier times the number of total parties? Would need to communicate total parties from server
-        trusted_parties = context.run_config["trusted-parties"]
+        noise_multiplier = config["noise-multiplier"]
+        trusted_parties = config["trusted-parties"]
         trusted_multiplier = 1/math.sqrt(trusted_parties-1)
 
         if context.run_config["reproducible"]:
