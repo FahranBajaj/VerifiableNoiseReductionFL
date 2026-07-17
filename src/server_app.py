@@ -51,11 +51,26 @@ def main(grid: Grid, context: Context) -> None:
     num_model_updates: int | None = context.run_config["num-model-updates"]
     if num_model_updates < 0:
         num_model_updates = None
-    num_trusted_parties: int = max(2, context.run_config["trusted-fraction"] * len(grid.get_node_ids()))
+    learning_rate: float = context.run_config["learning-rate"]
+    clipping_norm: float = context.run_config["max-norm"]
+    local_epochs: float = context.run_config["local-epochs"]
+    batch_size: float = context.run_config["batch-size"]
+    trusted_fraction: float = context.run_config["trusted-fraction"]
+    epsilon: float = context.run_config["epsilon"]
+    delta: float= context.run_config["delta"]
+    id: int = context.run_id
+    global WRITE_RESULTS_TO_FILE
+    global FILE_TO_WRITE
+    WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
+    FILE_TO_WRITE = context.run_config["results-directory"] + f"/{id}results.csv"
+    num_clients = len(grid.get_node_ids())
+
+    #compute trusted parties, noise multiplier
+    num_trusted_parties: int = max(2, trusted_fraction * num_clients)
     noise_multiplier: float = compute_noise_multiplier(
         num_trusted_parties,
-        context.run_config["epsilon"],
-        context.run_config["delta"],
+        epsilon,
+        delta,
         num_model_updates if num_model_updates is not None else max_num_rounds
     )
     msg_to_clients = ConfigRecord({
@@ -63,16 +78,45 @@ def main(grid: Grid, context: Context) -> None:
         "trusted-parties": num_trusted_parties
     })
 
-    global WRITE_RESULTS_TO_FILE
-    global FILE_TO_WRITE
-    WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
-    FILE_TO_WRITE = context.run_config["results-directory"] + f"/{context.run_id}results.csv"
+    #write to runinfo csv
+    with open("runinfo.csv", 'a', newline = '') as csvfile:
+        fieldnames = [
+            "id",
+            "dataset",
+            "num-clients",
+            "fraction-malicious",
+            "attack-type",
+            "local-epochs",
+            "learning-rate",
+            "batch-size",
+            "trusted-fraction",
+            "epsilon",
+            "delta",
+            "clipping-norm",
+            "noise-multiplier"
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
+        writer.writerow({
+            "id": id,
+            "dataset": None,
+            "num-clients": num_clients,
+            "fraction-malicious": fraction_malicious,
+            "attack-type": None,
+            "local-epochs": local_epochs,
+            "learning-rate": learning_rate,
+            "batch-size": batch_size,
+            "trusted-fraction": trusted_fraction,
+            "epsilon": epsilon,
+            "delta": delta,
+            "clipping-norm": clipping_norm,
+            "noise-multiplier": noise_multiplier
+        })
 
     # Load global model
     global_model = model_loading.Model()
     arrays = ArrayRecord(global_model.state_dict())
 
-    expected_std = noise_multiplier*context.run_config["learning-rate"]*context.run_config["max-norm"]*context.run_config["local-epochs"]*math.sqrt(1+(1/(num_trusted_parties - 1)))/context.run_config["batch-size"]
+    expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
     strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, num_updates = num_model_updates, expected_std = expected_std)
 
     result = strategy.start(
