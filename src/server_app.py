@@ -72,7 +72,7 @@ def main(grid: Grid, context: Context) -> None:
     global_model = model_loading.Model()
     arrays = ArrayRecord(global_model.state_dict())
 
-    expected_std = context.run_config["noise-multiplier"]*context.run_config["learning-rate"]*context.run_config["max-norm"]*context.run_config["local-epochs"]*math.sqrt(1+(1/(context.run_config["trusted-parties"] - 1)))/context.run_config["batch-size"]
+    expected_std = noise_multiplier*context.run_config["learning-rate"]*context.run_config["max-norm"]*context.run_config["local-epochs"]*math.sqrt(1+(1/(num_trusted_parties - 1)))/context.run_config["batch-size"]
     strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, num_updates = num_model_updates, expected_std = expected_std)
 
     result = strategy.start(
