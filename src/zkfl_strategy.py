@@ -42,6 +42,7 @@ class ZKFLStrategy(FedAvg):
         evaluate_metrics_aggr_fn: (
             Callable[[list[RecordDict], str], MetricRecord] | None
         ) = None,
+        num_updates: int | None = None,
         pca_components: int = 5,
         feddmc_alpha: float = 0.8,
         min_cluster_fraction: float = 0.03,
@@ -60,6 +61,9 @@ class ZKFLStrategy(FedAvg):
             train_metrics_aggr_fn,
             evaluate_metrics_aggr_fn
         )
+
+        if not (isinstance(num_updates, int) and num_updates >= 0):
+            raise ValueError("num_updates must be a nonnegative integer (or None)")
         
         if not (fraction_malicious >= 0 and fraction_malicious <= 1):
             raise ValueError("fraction_malicious must be a number between 0 and 1 (inclusive)")
@@ -69,6 +73,10 @@ class ZKFLStrategy(FedAvg):
         
         if not (min_cluster_fraction >= 0 and min_cluster_fraction < 0.5):
             raise ValueError("min_cluster_fraction must be a nonnegative number strictly less than 0.5")
+        self.max_num_updates: float = (math.inf if num_updates is None else num_updates)
+        if self.max_num_updates == 0:
+            self.fraction_train = 0
+            self.fraction_evaluate = 0
         self.fraction_malicious: float = fraction_malicious
         self.pca_components: int = pca_components
         self.feddmc_alpha: float = feddmc_alpha
@@ -84,7 +92,7 @@ class ZKFLStrategy(FedAvg):
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
     ) -> Iterable[Message]:
-        if server_round == 1:
+        if server_round == 1 and self.fraction_train > 0:
             log(INFO, "configure_train: configuring first round of training")
             self.trained_this_round = True
             self.current_ckks_context = ckks.generage_ckks_context()
@@ -135,7 +143,6 @@ class ZKFLStrategy(FedAvg):
             public_context = public_context.serialize()
 
             if self.fraction_train == 0.0:
-                log(WARNING, "configure_train: fraction_train is 0 so no nodes were selected")
                 return []
             
             #select nodes
@@ -271,5 +278,8 @@ class ZKFLStrategy(FedAvg):
             self.ids_to_num_examples = {}
             self.current_nodes = [] #clear out list to indicate we select new clients next iteration
             src.config.total_model_updates += 1
+            if src.config.total_model_updates == self.max_num_updates:
+                self.fraction_train = 0
+                self.fraction_evaluate = 0
             src.config.last_update_round = server_round
             return aggregated_weights, aggregated_metrics

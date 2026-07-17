@@ -24,7 +24,10 @@ def main(grid: Grid, context: Context) -> None:
     # Read run config
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_malicious: float = context.run_config["fraction-malicious"]
-    num_rounds: int = context.run_config["num-server-rounds"]
+    max_num_rounds: int = context.run_config["max-num-server-rounds"]
+    num_model_updates: int | None = context.run_config["num-model-updates"]
+    if num_model_updates < 0:
+        num_model_updates = None
     global WRITE_RESULTS_TO_FILE
     global FILE_TO_WRITE
     WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
@@ -35,13 +38,13 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     expected_std = context.run_config["noise-multiplier"]*context.run_config["learning-rate"]*context.run_config["max-norm"]*context.run_config["local-epochs"]*math.sqrt(1+(1/(context.run_config["trusted-parties"] - 1)))/context.run_config["batch-size"]
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, expected_std = expected_std)
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, num_updates = num_model_updates, expected_std = expected_std)
 
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
         train_config=None,
-        num_rounds=num_rounds,
+        num_rounds=max_num_rounds,
         evaluate_fn=global_evaluate,
     )
 
