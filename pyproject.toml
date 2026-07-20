@@ -30,6 +30,7 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
+dataset = "MNIST"
 max-num-server-rounds = 3
 fraction-evaluate = 0
 fraction-malicious = 0

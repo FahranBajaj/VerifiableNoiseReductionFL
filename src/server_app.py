@@ -9,6 +9,7 @@ from flwr.serverapp import Grid, ServerApp
 
 from src import model_loading, data_loading, util
 from src.zkfl_strategy import ZKFLStrategy
+from src.data_loading import Datasets
 import src.config
 
 WRITE_RESULTS_TO_FILE: bool
@@ -45,6 +46,8 @@ def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
 
     # Read run config
+    dataset: str = context.run_config["dataset"]
+    src.config.dataset = Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_malicious: float = context.run_config["fraction-malicious"]
     max_num_rounds: int = context.run_config["max-num-server-rounds"]
