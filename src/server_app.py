@@ -98,7 +98,7 @@ def main(grid: Grid, context: Context) -> None:
         writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
         writer.writerow({
             "id": id,
-            "dataset": None,
+            "dataset": "MNIST",
             "num-clients": num_clients,
             "fraction-malicious": fraction_malicious,
             "attack-type": None,
