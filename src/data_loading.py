@@ -17,7 +17,7 @@ class WeatherDataset():
     class WeatherPartition(Dataset):
         def __init__(self, data, targets):
             self.data = torch.Tensor(np.array(data))
-            self.targets = torch.Tensor(np.array(targets))
+            self.targets = torch.Tensor(np.array(targets)).type(torch.LongTensor)
 
         def __len__(self):
             return len(self.data)
