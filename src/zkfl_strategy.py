@@ -62,7 +62,7 @@ class ZKFLStrategy(FedAvg):
             evaluate_metrics_aggr_fn
         )
 
-        if not num_updates is None or (isinstance(num_updates, int) and num_updates >= 0):
+        if not (num_updates is None or (isinstance(num_updates, int) and num_updates >= 0)):
             raise ValueError("num_updates must be a nonnegative integer (or None)")
         
         if not (fraction_malicious >= 0 and fraction_malicious <= 1):

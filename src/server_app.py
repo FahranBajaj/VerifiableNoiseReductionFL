@@ -91,7 +91,7 @@ def main(grid: Grid, context: Context) -> None:
             fieldnames = [
                 "id",
                 "dataset",
-                "concentration-parameter"
+                "concentration-parameter",
                 "num-clients",
                 "fraction-malicious",
                 "attack-type",
