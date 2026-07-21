@@ -1,15 +1,18 @@
 import math
 import csv
 import os
+from logging import ERROR, DEBUG
+import tomllib
 
 import torch
 import dp_accounting
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
+from flwr.common.logger import log
 
 from src import model_loading, data_loading, util
 from src.zkfl_strategy import ZKFLStrategy
-from src.data_loading import Datasets
+from src.util import Datasets
 import src.config
 
 WRITE_RESULTS_TO_FILE: bool
@@ -47,7 +50,8 @@ def main(grid: Grid, context: Context) -> None:
 
     # Read run config
     dataset: str = context.run_config["dataset"]
-    src.config.dataset = Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
+    dataset = Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
+    concentration_parameter = context.run_config["concentration-parameter"]
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_malicious: float = context.run_config["fraction-malicious"]
     max_num_rounds: int = context.run_config["max-num-server-rounds"]
@@ -57,7 +61,7 @@ def main(grid: Grid, context: Context) -> None:
     learning_rate: float = context.run_config["learning-rate"]
     clipping_norm: float = context.run_config["max-norm"]
     local_epochs: float = context.run_config["local-epochs"]
-    batch_size: float = context.run_config["batch-size"]
+    batch_size: int = context.run_config["batch-size"]
     trusted_fraction: float = context.run_config["trusted-fraction"]
     epsilon: float = context.run_config["epsilon"]
     delta: float= context.run_config["delta"]
@@ -82,41 +86,44 @@ def main(grid: Grid, context: Context) -> None:
     })
 
     #write to runinfo csv
-    with open("runinfo.csv", 'a', newline = '') as csvfile:
-        fieldnames = [
-            "id",
-            "dataset",
-            "num-clients",
-            "fraction-malicious",
-            "attack-type",
-            "local-epochs",
-            "learning-rate",
-            "batch-size",
-            "trusted-fraction",
-            "epsilon",
-            "delta",
-            "clipping-norm",
-            "noise-multiplier"
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
-        writer.writerow({
-            "id": id,
-            "dataset": src.config.dataset.value,
-            "num-clients": num_clients,
-            "fraction-malicious": fraction_malicious,
-            "attack-type": None,
-            "local-epochs": local_epochs,
-            "learning-rate": learning_rate,
-            "batch-size": batch_size,
-            "trusted-fraction": trusted_fraction,
-            "epsilon": epsilon,
-            "delta": delta,
-            "clipping-norm": clipping_norm,
-            "noise-multiplier": noise_multiplier
-        })
+    if WRITE_RESULTS_TO_FILE:
+        with open("runinfo.csv", 'a', newline = '') as csvfile:
+            fieldnames = [
+                "id",
+                "dataset",
+                "concentration-parameter"
+                "num-clients",
+                "fraction-malicious",
+                "attack-type",
+                "local-epochs",
+                "learning-rate",
+                "batch-size",
+                "trusted-fraction",
+                "epsilon",
+                "delta",
+                "clipping-norm",
+                "noise-multiplier"
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
+            writer.writerow({
+                "id": id,
+                "dataset": dataset.value,
+                "concentration-parameter": concentration_parameter,
+                "num-clients": num_clients,
+                "fraction-malicious": fraction_malicious,
+                "attack-type": None,
+                "local-epochs": local_epochs,
+                "learning-rate": learning_rate,
+                "batch-size": batch_size,
+                "trusted-fraction": trusted_fraction,
+                "epsilon": epsilon,
+                "delta": delta,
+                "clipping-norm": clipping_norm,
+                "noise-multiplier": noise_multiplier
+            })
 
     # Load global model
-    global_model = model_loading.Model()
+    global_model = model_loading.model()
     arrays = ArrayRecord(global_model.state_dict())
 
     expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
@@ -142,14 +149,18 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
 
     if server_round == src.config.last_update_round:
         # Load the model and initialize it with the received weights
-        model = model_loading.Model()
+        model = model_loading.model()
         model.load_state_dict(arrays.to_torch_state_dict())
-        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+        with open("pyproject.toml", 'rb') as f:
+            config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
+
+        dataset = Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
         model.to(device)
-        criterion = model_loading.loss()
+        criterion = model_loading.loss(train = False)
 
         # Load entire test set
-        test_loader = data_loading.load_centralized_dataset()
+        test_loader = data_loading.load_test_dataset()
 
         # Evaluate the global model on the test set
         accuracy, loss = util.test(model, criterion, test_loader, device)

@@ -1,7 +1,19 @@
+from enum import Enum
+
 import torch 
-from flwr.common import Parameters, ArrayRecord
+
+class Datasets(Enum):
+    MNIST = "MNIST"
+    CIFAR10 = "CIFAR10"
+    WEATHER = "WEATHER"
 
 EMPTY_TENSOR_KEY = "_empty"
+
+def X_key(dataset: Datasets):
+    return 0 if dataset == Datasets.WEATHER else "image" if dataset == Datasets.MNIST else "img"
+
+def y_key(dataset: Datasets):
+    return 1 if dataset == Datasets.WEATHER else "label"
 
 def state_dict_to_vec(state_dict):
     """Converts a Pytorch state_dict into a 1-dimensional tensor"""
@@ -25,9 +37,9 @@ def test(model, criterion, test_loader, device):
         outputs = model(batch[0].to(device))
         labels = batch[1].to(device)
         loss += criterion(outputs, labels).item()
-        correct += (torch.max(outputs.data, 1)[1] == torch.max(labels, 1)[1]).sum().item()
+        correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
 
     accuracy = correct / len(test_loader.dataset)
-    loss = loss / len(test_loader)
+    loss = loss / len(test_loader.dataset)
 
     return accuracy, loss

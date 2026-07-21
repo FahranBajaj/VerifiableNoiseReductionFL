@@ -62,7 +62,7 @@ class ZKFLStrategy(FedAvg):
             evaluate_metrics_aggr_fn
         )
 
-        if not (isinstance(num_updates, int) and num_updates >= 0):
+        if not num_updates is None or (isinstance(num_updates, int) and num_updates >= 0):
             raise ValueError("num_updates must be a nonnegative integer (or None)")
         
         if not (fraction_malicious >= 0 and fraction_malicious <= 1):
@@ -266,7 +266,7 @@ class ZKFLStrategy(FedAvg):
             aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces).to(device)) / self.total_examples
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
-            aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.Model().state_dict(), aggregated_weights.to(device)))
+            aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.model().state_dict(), aggregated_weights.to(device)))
 
             # Aggregate custom metrics if aggregation fn was provided
             aggregated_metrics = self.train_metrics_aggr_fn(

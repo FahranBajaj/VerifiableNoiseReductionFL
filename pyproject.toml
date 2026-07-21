@@ -9,13 +9,16 @@ requires-python = "==3.13.14"
 #versions below mostly based on what I have installed on my system
 dependencies = [
     "flwr[simulation]>=1.28.0",
+    "flwr-datasets[vision]>=0.6.0",
+    "torchvision==0.23.0",
     "torch>=2.8.0",
     "opacus>=1.6.0",
     "numpy>=2.4.6",
     "scikit-learn>=1.9.0",
     "tenseal>=0.3.16",
     "scipy>=1.17.1",
-    "dp-accounting>=0.6.0"
+    "dp-accounting>=0.6.0",
+    "pandas>=3.0.3"
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -30,13 +33,14 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "MNIST"
-max-num-server-rounds = 3
+dataset = "WEATHER"
+concentration-parameter = 5
+max-num-server-rounds = 20
 fraction-evaluate = 0
 fraction-malicious = 0
 local-epochs = 1
 learning-rate = 0.1
-batch-size = 2
+batch-size = 128
 trusted-fraction = 0.5
 save-model = false
 epsilon = 1

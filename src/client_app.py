@@ -11,6 +11,7 @@ from flwr.common.logger import log
 from opacus import PrivacyEngine
 
 from src import model_loading, data_loading, util
+from src.util import Datasets
 
 os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 
@@ -54,24 +55,24 @@ def train(msg: Message, context: Context):
             }), reply_to = msg)
 
     elif config["Instruction"] == "TRAIN":
-        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
         learning_rate = context.run_config["learning-rate"]
         clipping_norm = context.run_config["max-norm"]
         local_epochs = context.run_config["local-epochs"]
         batch_size = context.run_config["batch-size"]
+        dataset = Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
+        device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10 )else "cpu"
         if not ("RawWeights" in context.state.keys()):
             #need to train and compute local weights
             #load data
             num_partitions = context.node_config["num-partitions"]
             #TODO: implement the below function
-            trainloader, _ = data_loading.load_data(id, num_partitions, batch_size)
+            trainloader = data_loading.load_data(id, num_partitions, batch_size)
 
             #load model
             #TODO: implement below functions (when I have data, decide a model architecture)
-            model = model_loading.Model()
+            model = model_loading.model()
             criterion = model_loading.loss()
             model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-            device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
             model.to(device)
             optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
@@ -85,14 +86,17 @@ def train(msg: Message, context: Context):
                 max_grad_norm=clipping_norm,
                 poisson_sampling = False
             )
-            context.state["NumExamples"] = MetricRecord({"num-examples": len(private_train_loader.dataset)})
+            context.state["NumExamples"] = MetricRecord({
+                #len(private_train_loader.dataset) inaccurate since drop_last = True
+                "num-examples": len(private_train_loader)*batch_size
+            })
 
             #train
             private_model.train()
             for _ in range(local_epochs):
                 for batch in private_train_loader:
                     optimizer.zero_grad()
-                    criterion(private_model(batch[0].to(device)), batch[1].to(device)).backward()
+                    criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
                     optimizer.step()
 
             context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
@@ -140,32 +144,3 @@ def train(msg: Message, context: Context):
     else:
         log(ERROR, "Unrecognized instruction")
         raise Exception("Unrecognized instruction")
-
-    
-
-@app.evaluate()
-def evaluate(msg: Message, context: Context):
-    # Load the model and initialize it with the received weights
-    model = model_loading.Model()
-    model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-    model.to(device)
-    criterion = model_loading.loss()
-
-    # Load the data
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
-    batch_size = context.run_config["batch-size"]
-    _, test_loader = data_loading.load_data(partition_id, num_partitions, batch_size)
-
-    accuracy, loss = util.test(model, criterion, test_loader, device)
-
-    # Construct and return reply Message
-    metrics = {
-        "eval_acc": accuracy,
-        "eval_loss": loss,
-        "num-examples": len(test_loader.dataset),
-    }
-    metric_record = MetricRecord(metrics)
-    content = RecordDict({"metrics": metric_record})
-    return Message(content=content, reply_to=msg)
