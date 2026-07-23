@@ -20,9 +20,6 @@ app = ClientApp()
 
 @app.train()
 def train(msg: Message, context: Context):
-    if context.run_config["reproducible"]:
-        torch.manual_seed(42)
-
     #Check message to see if this is the first round
     config = msg.content["config"]
     if "Malicious" in config.keys():
@@ -59,17 +56,15 @@ def train(msg: Message, context: Context):
         clipping_norm = context.run_config["max-norm"]
         local_epochs = context.run_config["local-epochs"]
         batch_size = context.run_config["batch-size"]
-        dataset = Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
+        dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
         device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10 )else "cpu"
         if not ("RawWeights" in context.state.keys()):
             #need to train and compute local weights
             #load data
             num_partitions = context.node_config["num-partitions"]
-            #TODO: implement the below function
             trainloader = data_loading.load_data(id, num_partitions, batch_size)
 
             #load model
-            #TODO: implement below functions (when I have data, decide a model architecture)
             model = model_loading.model()
             criterion = model_loading.loss()
             model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
@@ -102,38 +97,28 @@ def train(msg: Message, context: Context):
             context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
 
         state = torch.tensor(context.state["RawWeights"]["raw-weights"].numpy()).to(device)
-        plaintext_weights = torch.tensor([]).to(device) #initialize variables for later use
-        low_noise_weights = torch.tensor([]).to(device)
-        encrypted_differences = torch.tensor([]).to(device)
-
         noise_multiplier = config["noise-multiplier"]
-        trusted_parties = config["trusted-parties"]
-        trusted_multiplier = 1/math.sqrt(trusted_parties-1)
-
-        if context.run_config["reproducible"]:
-            std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-            plaintext_weights = state + torch.normal(0, std).to(device)
-            low_noise_weights = state + torch.normal(0, std*trusted_multiplier).to(device)
-        else:
-            rng = random.SystemRandom()
-            std = noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-            #use threadsafe .normalvariate() instead of .gauss() since we may have multiple clients running at once
-            big_noise = torch.tensor([rng.normalvariate(0, std) for _ in range(state.numel())]).to(device)
-            small_noise = torch.tensor([rng.normalvariate(0, std*trusted_multiplier) for _ in range(state.numel())]).to(device)
-            plaintext_weights = state + big_noise
-            low_noise_weights = state + small_noise
-
-        num_examples_record = context.state["NumExamples"]
-        encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
-
-        #store plaintext weights, write reply
+        std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
+        plaintext_weights = state + torch.normal(torch.zeros_like(state), std).to(device)
         context.state["NoisyWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
-        encrypted_differences = ts.ckks_vector(ts.context_from(config["CKKS-context"]), encrypted_differences.cpu()).serialize()
-        config_rec = ConfigRecord({
-            "active" : True, 
-            "encrypted-difference": encrypted_differences
-            })
+        num_examples_record = context.state["NumExamples"]
         empty_array_rec = ArrayRecord({}) #strategy expects exactly one array record per iteration
+        config_rec: ConfigRecord
+        if context.run_config["noise-reduction"]:
+            trusted_parties = config["trusted-parties"]
+            trusted_multiplier = 1/math.sqrt(trusted_parties-1)
+            low_noise_weights = state + torch.normal(torch.zeros_like(state), std*trusted_multiplier).to(device)
+            encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
+
+            #store plaintext weights, write reply
+            encrypted_differences = ts.ckks_vector(ts.context_from(config["CKKS-context"]), encrypted_differences.cpu()).serialize()
+            config_rec = ConfigRecord({
+                "active" : True, 
+                "encrypted-difference": encrypted_differences
+                })
+        else:
+            config_rec = ConfigRecord({"active" : True})
+
         return Message(
             content = RecordDict(records = {
                 "config": config_rec,

@@ -8,6 +8,7 @@ version = "0.0.1"
 requires-python = "==3.13.14"
 #versions below mostly based on what I have installed on my system
 dependencies = [
+    "datasets<4.0.0",
     "flwr[simulation]>=1.28.0",
     "flwr-datasets[vision]>=0.6.0",
     "torchvision==0.23.0",
@@ -33,20 +34,23 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "CIFAR10"
+dataset = "EMNIST"
+attack-type = ""
+use-dp = true
+noise-reduction = true
 concentration-parameter = 5
 max-num-server-rounds = 200
 fraction-evaluate = 0
 fraction-malicious = 0
 local-epochs = 1
-learning-rate = 0.1
+learning-rate = 0.03
 batch-size = 128
 trusted-fraction = 0.5
 save-model = false
 epsilon = 2
 delta = 0.00001
-max-norm = 1
+max-norm = 2
 reproducible = false
-write-results = true
+write-results = false
 results-directory = "results"
 num-model-updates = 10 #negative to run for until process ends from max-num-server-rounds

@@ -6,11 +6,12 @@ class Datasets(Enum):
     MNIST = "MNIST"
     CIFAR10 = "CIFAR10"
     WEATHER = "WEATHER"
+    EMNIST = "EMNIST"
 
 EMPTY_TENSOR_KEY = "_empty"
 
 def X_key(dataset: Datasets):
-    return 0 if dataset == Datasets.WEATHER else "image" if dataset == Datasets.MNIST else "img"
+    return 0 if dataset == Datasets.WEATHER else "image" if dataset == Datasets.MNIST or dataset == Datasets.EMNIST  else "img"
 
 def y_key(dataset: Datasets):
     return 1 if dataset == Datasets.WEATHER else "label"

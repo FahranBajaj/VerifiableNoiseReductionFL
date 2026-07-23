@@ -24,13 +24,17 @@ app = ServerApp()
 def compute_noise_multiplier(trusted_parties: int,
                              target_epsilon: float,
                              target_delta: float,
-                             global_model_updates: int) -> float:
+                             global_model_updates: int,
+                             noise_reduction: bool = True) -> float:
     
     def create_mechanism(noise_multiplier):
-        gaussians=dp_accounting.dp_event.ComposedDpEvent([
-            dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=noise_multiplier),
-            dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=math.sqrt(trusted_parties)*noise_multiplier/(math.sqrt(trusted_parties-1)))
-        ])
+        if noise_reduction:
+            gaussians=dp_accounting.dp_event.ComposedDpEvent([
+                dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=noise_multiplier),
+                dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=math.sqrt(trusted_parties)*noise_multiplier/(math.sqrt(trusted_parties-1)))
+            ])
+        else:
+            gaussians = dp_accounting.dp_event.GaussianDpEvent(noise_multiplier=noise_multiplier)
         
         full_mechanism = dp_accounting.dp_event.SelfComposedDpEvent(event = gaussians, count = int(global_model_updates))
         return full_mechanism
@@ -50,7 +54,10 @@ def main(grid: Grid, context: Context) -> None:
 
     # Read run config
     dataset: str = context.run_config["dataset"]
-    dataset = Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
+    dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
+    attack_type: str = context.run_config["attack-type"]
+    use_dp: bool = context.run_config["use-dp"]
+    noise_reduction: bool = context.run_config["noise-reduction"]
     concentration_parameter = context.run_config["concentration-parameter"]
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_malicious: float = context.run_config["fraction-malicious"]
@@ -74,11 +81,12 @@ def main(grid: Grid, context: Context) -> None:
 
     #compute trusted parties, noise multiplier
     num_trusted_parties: int = max(2, trusted_fraction * num_clients)
-    noise_multiplier: float = compute_noise_multiplier(
+    noise_multiplier: float = int(use_dp) * compute_noise_multiplier(
         num_trusted_parties,
         epsilon,
         delta,
-        num_model_updates if num_model_updates is not None else max_num_rounds
+        num_model_updates if num_model_updates is not None else max_num_rounds,
+        noise_reduction
     )
     msg_to_clients = ConfigRecord({
         "noise-multiplier": noise_multiplier,
@@ -91,6 +99,9 @@ def main(grid: Grid, context: Context) -> None:
             fieldnames = [
                 "id",
                 "dataset",
+                "attack-type",
+                "use-dp",
+                "noise-reduction",
                 "concentration-parameter",
                 "num-clients",
                 "fraction-malicious",
@@ -108,6 +119,9 @@ def main(grid: Grid, context: Context) -> None:
             writer.writerow({
                 "id": id,
                 "dataset": dataset.value,
+                "attack-type": attack_type,
+                "use-dp": use_dp,
+                "noise-reduction": noise_reduction,
                 "concentration-parameter": concentration_parameter,
                 "num-clients": num_clients,
                 "fraction-malicious": fraction_malicious,
@@ -127,7 +141,7 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, num_updates = num_model_updates, expected_std = expected_std)
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates, expected_std = expected_std)
 
     result = strategy.start(
         grid=grid,
@@ -154,7 +168,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
         with open("pyproject.toml", 'rb') as f:
             config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
 
-        dataset = Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+        dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
         device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
         model.to(device)
         criterion = model_loading.loss(train = False)

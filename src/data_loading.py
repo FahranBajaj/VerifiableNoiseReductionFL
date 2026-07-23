@@ -75,6 +75,11 @@ mnist_transforms = Compose([
     Normalize((0.1307,), (0.3081,))
 ])
 
+emnist_transforms = Compose([
+    ToTensor(), 
+    Normalize((0.1736,), (0.3317,))
+])
+
 cifar_train_transforms = Compose([
     ToTensor(), 
     RandomCrop(24), 
@@ -95,6 +100,10 @@ def transform_mnist(batch):
     batch["image"] = [mnist_transforms(image) for image in batch["image"]]
     return batch
 
+def transform_emnist(batch):
+    batch["image"] = [emnist_transforms(image) for image in batch["image"]]
+    return batch
+
 def transform_cifar_train(batch):
     batch["img"] = [cifar_train_transforms(image) for image in batch["img"]]
     return batch
@@ -106,13 +115,21 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
     with open("pyproject.toml", 'rb') as f:
         config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
 
-    dataset = Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
     concentration_parameter = config_dict["concentration-parameter"]
 
     global federated_dataset
     if federated_dataset is None:
         if dataset == Datasets.WEATHER:
             federated_dataset = WeatherDataset(seed = 42)
+        elif dataset == Datasets.EMNIST:
+            partitioner = DirichletPartitioner(num_partitions, "label", concentration_parameter, min_partition_size = 2*batch_size, seed = 42)
+            federated_dataset = FederatedDataset(
+                dataset = "galilai-group/emnist",
+                partitioners = {"train": partitioner},
+                subset = "byclass",
+                trust_remote_code = True
+            )
         else:
             partitioner = DirichletPartitioner(num_partitions, "label", concentration_parameter, min_partition_size = 2*batch_size, seed = 42)
             federated_dataset = FederatedDataset(
@@ -124,7 +141,7 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
     if dataset == Datasets.WEATHER:
         partition = federated_dataset.load_partition(partition_id)
     else: 
-        partition = federated_dataset.load_partition(partition_id).with_transform(transform_cifar_train if dataset == Datasets.CIFAR10 else transform_mnist)
+        partition = federated_dataset.load_partition(partition_id).with_transform(transform_emnist if dataset == Datasets.EMNIST else transform_cifar_train if dataset == Datasets.CIFAR10 else transform_mnist)
         
     return DataLoader(partition, batch_size = batch_size, shuffle = True, drop_last = True)
     
@@ -132,10 +149,12 @@ def load_test_dataset():
     with open("pyproject.toml", 'rb') as f:
         config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
 
-    dataset = Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
     global test_dataset
     if test_dataset is None:
-        if dataset == Datasets.CIFAR10:
+        if dataset == Datasets.EMNIST:
+            test_dataset = torchvision.datasets.EMNIST(root = 'data/', download = False, split = "byclass", train = False, transform = emnist_transforms)
+        elif dataset == Datasets.CIFAR10:
             test_dataset = torchvision.datasets.CIFAR10(root = 'data/', transform = cifar_test_transforms, download = False, train = False)
         elif dataset == Datasets.WEATHER:
             global federated_dataset

@@ -42,10 +42,12 @@ class ZKFLStrategy(FedAvg):
         evaluate_metrics_aggr_fn: (
             Callable[[list[RecordDict], str], MetricRecord] | None
         ) = None,
+        use_dp: bool = True,
+        noise_reduction: bool = True,
         num_updates: int | None = None,
         pca_components: int = 5,
         feddmc_alpha: float = 0.8,
-        min_cluster_fraction: float = 0.03,
+        min_cluster_fraction: float = 0.05,
         jarque_bera_significance: float = 0.05,
         expected_std = 0
     ) -> None:
@@ -78,6 +80,8 @@ class ZKFLStrategy(FedAvg):
             self.fraction_train = 0
             self.fraction_evaluate = 0
         self.fraction_malicious: float = fraction_malicious
+        self.use_dp: bool = use_dp
+        self.noise_reduction: bool = noise_reduction
         self.pca_components: int = pca_components
         self.feddmc_alpha: float = feddmc_alpha
         self.min_cluster_fraction: float = min_cluster_fraction
@@ -181,7 +185,7 @@ class ZKFLStrategy(FedAvg):
         if not valid_replies:
             return None, None
         
-        if self.trained_this_round:
+        if self.trained_this_round and self.noise_reduction:
             #We receive ciphertexts 
             #Either aggregate or inspect
             inspecting = random.randint(0, 1)
@@ -200,7 +204,7 @@ class ZKFLStrategy(FedAvg):
                 if records["config"]["active"]:
                     serialized_ciphertet = records["config"]["encrypted-difference"]
                     num_examples = records["num-examples"]["num-examples"]
-                    if inspecting:
+                    if inspecting and self.use_dp:
                         difference = np.array(ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt())
                         new_trust_score = 1 - jarque_bera(difference, 0, self.expected_std*num_examples, self.jarque_bera_alpha)
                         self.trust_scores[id] = self.trust_scores[id] * self.feddmc_alpha + (1-self.feddmc_alpha)*new_trust_score
@@ -212,10 +216,27 @@ class ZKFLStrategy(FedAvg):
                         self.ids_to_num_examples[id] = num_examples
                         self.total_examples += num_examples
 
-            if inspecting:
+            if inspecting and self.use_dp:
                 self.current_nodes = [] #clear out list to indicate we select new clients next iteration
                 
             return None, None #no global update was performed
+        
+        elif self.trained_this_round and not self.noise_reduction:
+            log(INFO, f"aggregate_train: received {len(replies)} replies; tabulating number of examples")
+            self.ids_to_num_examples = {}
+            self.total_examples = 0
+            for reply in replies:
+                id = reply.metadata.src_node_id
+                records = reply.content
+                if not id in self.trust_scores.keys():
+                    self.trust_scores[id] = 0.5
+                if records["config"]["active"]:
+                    num_examples = records["num-examples"]["num-examples"]
+                    self.ids_to_num_examples[id] = num_examples
+                    self.total_examples += num_examples
+
+            return None, None #no global update was performed
+
                        
         else:
             #We receive plaintext model weights to inspect and aggregate
@@ -252,18 +273,28 @@ class ZKFLStrategy(FedAvg):
             for id in active_clients:
                 if self.trust_scores[id] >= 0.5:
                     aggregated_weights += torch.tensor(ids_to_plaintext_weights[id]).to(device)*self.ids_to_num_examples[id]
-                    aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
-                    num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
+                    if self.use_dp and self.noise_reduction:
+                        aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
+                        num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
+
+            if self.use_dp and self.noise_reduction:  
+                aggregated_differneces = np.array(aggregated_differneces.decrypt(), np.float32)
+                if jarque_bera(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
+                    log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
+                    self.total_examples = 0
+                    self.ids_to_num_examples = {}
+                    self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+                    src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
+                    if src.config.total_model_updates == self.max_num_updates:
+                        self.fraction_train = 0
+                        self.fraction_evaluate = 0
+                    src.config.last_update_round = server_round
+                    return None, None
                 
-            aggregated_differneces = np.array(aggregated_differneces.decrypt(), np.float32)
-            if jarque_bera(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
-                log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
-                self.total_examples = 0
-                self.ids_to_num_examples = {}
-                self.current_nodes = [] #clear out list to indicate we select new clients next iteration
-                return None, None
+                aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces).to(device)) / self.total_examples
+            else:
+                aggregated_weights /= self.total_examples
             
-            aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces).to(device)) / self.total_examples
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
             aggregated_weights = ArrayRecord(util.vec_to_state_dict(model_loading.model().state_dict(), aggregated_weights.to(device)))
