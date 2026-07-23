@@ -78,7 +78,7 @@ def train(msg: Message, context: Context):
                 optimizer=optimizer,
                 data_loader=trainloader,
                 noise_multiplier=0,
-                max_grad_norm=clipping_norm,
+                max_grad_norm = clipping_norm if context.run_config["use-dp"] else math.inf,
                 poisson_sampling = False
             )
             context.state["NumExamples"] = MetricRecord({

@@ -99,7 +99,7 @@ class ZKFLStrategy(FedAvg):
         if server_round == 1 and self.fraction_train > 0:
             log(INFO, "configure_train: configuring first round of training")
             self.trained_this_round = True
-            self.current_ckks_context = ckks.generage_ckks_context()
+            self.current_ckks_context = ckks.generate_ckks_context()
             public_context = self.current_ckks_context.copy()
             public_context.make_context_public()
             public_context = public_context.serialize()
@@ -141,7 +141,7 @@ class ZKFLStrategy(FedAvg):
             #Select some nodes and have them train
             log(INFO, "configure_train: selecting nodes to train")
             self.trained_this_round = True
-            self.current_ckks_context = ckks.generage_ckks_context() #need new context, releasing CKKS decryptions can leak secret key
+            self.current_ckks_context = ckks.generate_ckks_context() #need new context, releasing CKKS decryptions can leak secret key
             public_context = self.current_ckks_context.copy()
             public_context.make_context_public()
             public_context = public_context.serialize()
@@ -268,18 +268,18 @@ class ZKFLStrategy(FedAvg):
                     self.feddmc_alpha)
 
             aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
-            aggregated_differneces = [0] * plaintext_weights[0].size
+            aggregated_differences = [0] * plaintext_weights[0].size
             num_examples_sq_sum = 0 #to compute expected std of aggregated_differences
             for id in active_clients:
                 if self.trust_scores[id] >= 0.5:
                     aggregated_weights += torch.tensor(ids_to_plaintext_weights[id]).to(device)*self.ids_to_num_examples[id]
                     if self.use_dp and self.noise_reduction:
-                        aggregated_differneces: ts.CKKSVector = aggregated_differneces + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
+                        aggregated_differences: ts.CKKSVector = aggregated_differences + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
                         num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
 
             if self.use_dp and self.noise_reduction:  
-                aggregated_differneces = np.array(aggregated_differneces.decrypt(), np.float32)
-                if jarque_bera(aggregated_differneces, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
+                aggregated_differences = np.array(aggregated_differences.decrypt(), np.float32)
+                if jarque_bera(aggregated_differences, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
                     log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
                     self.total_examples = 0
                     self.ids_to_num_examples = {}
@@ -291,7 +291,7 @@ class ZKFLStrategy(FedAvg):
                     src.config.last_update_round = server_round
                     return None, None
                 
-                aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differneces).to(device)) / self.total_examples
+                aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differences).to(device)) / self.total_examples
             else:
                 aggregated_weights /= self.total_examples
             

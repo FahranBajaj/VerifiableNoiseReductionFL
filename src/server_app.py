@@ -92,7 +92,7 @@ def main(grid: Grid, context: Context) -> None:
         raise ValueError("Attack type specified but fraction malicious is zero")
 
     #compute trusted parties, noise multiplier
-    num_trusted_parties: int = max(2, trusted_fraction * num_clients)
+    num_trusted_parties: int = int(max(2, trusted_fraction * num_clients))
     noise_multiplier: float = int(use_dp) * compute_noise_multiplier(
         num_trusted_parties,
         epsilon,
