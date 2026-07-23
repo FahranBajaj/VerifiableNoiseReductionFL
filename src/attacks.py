@@ -32,12 +32,13 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
 
         new_state_dict = OrderedDict()
         for layer_key, layer_weights in private_model.state_dict().items():
+            std = 0 if layer_weights.numel() == 1 else torch.std(layer_weights)
             new_state_dict[layer_key] = torch.normal(
                 torch.ones_like(layer_weights)*torch.mean(layer_weights),
-                torch.std(layer_weights)
+                std
             )
 
-        return ArrayRecord({"raw-weights": util.state_dict_to_vect(new_state_dict)})
+        return ArrayRecord({"raw-weights": util.state_dict_to_vec(new_state_dict)})
 
     elif context.run_config["attack-type"] == "SCALING":
         raise NotImplementedError()
@@ -48,7 +49,7 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
         for layer_key, layer_weights in private_model.state_dict().items():
             new_state_dict[layer_key] = layer_weights + (1-lambda_value)/(2*lambda_value)
 
-        return ArrayRecord({"raw-weights": util.state_dict_to_vect(new_state_dict)})
+        return ArrayRecord({"raw-weights": util.state_dict_to_vec(new_state_dict)})
     
     else:
         raise ValueError("Unrecognized attack type (the LIT attack does not use this function)")
