@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import torch
 from flwr.app import ArrayRecord
 
@@ -21,7 +23,23 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
         return ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
     
     elif context.run_config["attack-type"] == "GAUSSIAN":
-        raise NotImplementedError()
+        private_model.train()
+        for _ in range(local_epochs):
+            for batch in private_train_loader:
+                optimizer.zero_grad()
+                criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
+                optimizer.step()
+
+        new_state_dict = OrderedDict()
+        for layer_key, layer_weights in private_model.state_dict().items():
+            new_state_dict[layer_key] = torch.normal(
+                torch.ones_like(layer_weights)*torch.mean(layer_weights),
+                torch.std(layer_weights)
+            )
+
+        return ArrayRecord({"raw-weights": util.state_dict_to_vect(new_state_dict)})
+
+
     elif context.run_config["attack-type"] == "SCALING":
         raise NotImplementedError()
     elif context.run_config["attack-type"] == "ADAPTIVE":
