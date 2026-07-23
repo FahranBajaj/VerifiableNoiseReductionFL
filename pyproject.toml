@@ -36,6 +36,7 @@ clientapp = "src.client_app:app"
 [tool.flwr.app.config]
 dataset = "EMNIST"
 attack-type = ""
+adaptive-attack-lambda = 0.5
 use-dp = true
 noise-reduction = true
 concentration-parameter = 5

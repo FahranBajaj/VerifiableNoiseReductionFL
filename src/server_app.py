@@ -3,6 +3,7 @@ import csv
 import os
 from logging import ERROR, DEBUG
 import tomllib
+from datetime import datetime
 
 import torch
 import dp_accounting
@@ -63,6 +64,7 @@ def main(grid: Grid, context: Context) -> None:
     dataset: str = context.run_config["dataset"]
     dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
     attack_type: str = context.run_config["attack-type"]
+    adaptive_lambda: float = context.run_config["adaptive-attack-lambda"]
     use_dp: bool = context.run_config["use-dp"]
     noise_reduction: bool = context.run_config["noise-reduction"]
     concentration_parameter = context.run_config["concentration-parameter"]
@@ -110,8 +112,10 @@ def main(grid: Grid, context: Context) -> None:
         with open("runinfo.csv", 'a', newline = '') as csvfile:
             fieldnames = [
                 "id",
+                "start-time",
                 "dataset",
                 "attack-type",
+                "adaptive-attack-lambda"
                 "use-dp",
                 "noise-reduction",
                 "concentration-parameter",
@@ -129,8 +133,10 @@ def main(grid: Grid, context: Context) -> None:
             writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
             writer.writerow({
                 "id": id,
+                "start-time": datetime.now(),
                 "dataset": dataset.value,
                 "attack-type": attack_type,
+                "adaptive-attack-lambda": adaptive_lambda if attack_type == "ADAPTIVE" else None,
                 "use-dp": use_dp,
                 "noise-reduction": noise_reduction,
                 "concentration-parameter": concentration_parameter,

@@ -39,10 +39,16 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
 
         return ArrayRecord({"raw-weights": util.state_dict_to_vect(new_state_dict)})
 
-
     elif context.run_config["attack-type"] == "SCALING":
         raise NotImplementedError()
+    
     elif context.run_config["attack-type"] == "ADAPTIVE":
-        raise NotImplementedError()
+        lambda_value: float = context.run_config["adaptive-attack-lambda"]
+        new_state_dict = OrderedDict()
+        for layer_key, layer_weights in private_model.state_dict().items():
+            new_state_dict[layer_key] = layer_weights + (1-lambda_value)/(2*lambda_value)
+
+        return ArrayRecord({"raw-weights": util.state_dict_to_vect(new_state_dict)})
+    
     else:
         raise ValueError("Unrecognized attack type (the LIT attack does not use this function)")
