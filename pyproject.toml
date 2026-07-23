@@ -1,29 +1,12 @@
 [build-system]
-requires = ["hatchling"]
+requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
 [project]
 name = "FederatedLearning2026"
 version = "0.0.1"
 requires-python = "==3.13.14"
-#versions below mostly based on what I have installed on my system
-dependencies = [
-    "datasets<4.0.0",
-    "flwr[simulation]>=1.28.0",
-    "flwr-datasets[vision]>=0.6.0",
-    "torchvision==0.23.0",
-    "torch>=2.8.0",
-    "opacus>=1.6.0",
-    "numpy>=2.4.6",
-    "scikit-learn>=1.9.0",
-    "tenseal>=0.3.16",
-    "scipy>=1.17.1",
-    "dp-accounting>=0.6.0",
-    "pandas>=3.0.3"
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["."]
+dependencies = [ "datasets<4.0.0", "flwr[simulation]>=1.28.0", "flwr-datasets[vision]>=0.6.0", "torchvision==0.23.0", "torch>=2.8.0", "opacus>=1.6.0", "numpy>=2.4.6", "scikit-learn>=1.9.0", "tenseal>=0.3.16", "scipy>=1.17.1", "dp-accounting>=0.6.0", "pandas>=3.0.3",]
 
 [tool.flwr.app]
 publisher = "Fahran Bajaj"
@@ -37,10 +20,10 @@ clientapp = "src.client_app:app"
 dataset = "EMNIST"
 attack-type = ""
 adaptive-attack-lambda = 0.5
-use-dp = true
-noise-reduction = true
+use-dp = false
+noise-reduction = false
 concentration-parameter = 5
-max-num-server-rounds = 200
+max-num-server-rounds = 2000
 fraction-evaluate = 0
 fraction-malicious = 0
 local-epochs = 1
@@ -48,9 +31,12 @@ learning-rate = 0.03
 batch-size = 128
 trusted-fraction = 0.5
 save-model = false
-epsilon = 2
-delta = 0.00001
+epsilon = 1
+delta = 1e-5
 max-norm = 2
 write-results = true
 results-directory = "results"
-num-model-updates = 10 #negative to run for until process ends from max-num-server-rounds
+num-model-updates = 200
+
+[tool.hatch.build.targets.wheel]
+packages = [ ".",]

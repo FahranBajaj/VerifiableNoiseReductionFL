@@ -115,7 +115,7 @@ def main(grid: Grid, context: Context) -> None:
                 "start-time",
                 "dataset",
                 "attack-type",
-                "adaptive-attack-lambda"
+                "adaptive-attack-lambda",
                 "use-dp",
                 "noise-reduction",
                 "concentration-parameter",
