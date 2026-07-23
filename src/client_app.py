@@ -10,7 +10,7 @@ from flwr.clientapp import ClientApp
 from flwr.common.logger import log
 from opacus import PrivacyEngine
 
-from src import model_loading, data_loading, util
+from src import model_loading, data_loading, util, attacks
 from src.util import Datasets
 
 os.environ["RAY_memory_monitor_refresh_ms"] = "0"
@@ -57,7 +57,7 @@ def train(msg: Message, context: Context):
         local_epochs = context.run_config["local-epochs"]
         batch_size = context.run_config["batch-size"]
         dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
-        device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10 )else "cpu"
+        device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10) else "cpu"
         if not ("RawWeights" in context.state.keys()):
             #need to train and compute local weights
             #load data
@@ -87,14 +87,17 @@ def train(msg: Message, context: Context):
             })
 
             #train
-            private_model.train()
-            for _ in range(local_epochs):
-                for batch in private_train_loader:
-                    optimizer.zero_grad()
-                    criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
-                    optimizer.step()
+            if context.state["Malicious"]["Malicious"]:
+                context.state["RawWeights"] = attacks.malicious_update(private_model, optimizer, private_train_loader, context)
+            else:
+                private_model.train()
+                for _ in range(local_epochs):
+                    for batch in private_train_loader:
+                        optimizer.zero_grad()
+                        criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
+                        optimizer.step()
 
-            context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
+                context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
 
         state = torch.tensor(context.state["RawWeights"]["raw-weights"].numpy()).to(device)
         noise_multiplier = config["noise-multiplier"]

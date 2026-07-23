@@ -17,6 +17,13 @@ import src.config
 
 WRITE_RESULTS_TO_FILE: bool
 FILE_TO_WRITE: str
+ATTACK_TYPES: list[str] = [
+    "LABELFLIP",
+    "GAUSSIAN",
+    "LIT",
+    "SCALING",
+    "ADAPTIVE"
+]
 
 # Create ServerApp
 app = ServerApp()
@@ -78,6 +85,11 @@ def main(grid: Grid, context: Context) -> None:
     WRITE_RESULTS_TO_FILE = context.run_config["write-results"]
     FILE_TO_WRITE = context.run_config["results-directory"] + f"/{id}results.csv"
     num_clients = len(grid.get_node_ids())
+
+    if fraction_malicious != 0 and attack_type not in ATTACK_TYPES:
+        raise ValueError("Nonzero fraction malicious but attack type missing or unknown")
+    if fraction_malicious == 0 and attack_type != "":
+        raise ValueError("Attack type specified but fraction malicious is zero")
 
     #compute trusted parties, noise multiplier
     num_trusted_parties: int = max(2, trusted_fraction * num_clients)

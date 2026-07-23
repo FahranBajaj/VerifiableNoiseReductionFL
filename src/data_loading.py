@@ -11,7 +11,17 @@ from torch.utils.data import Dataset, DataLoader
 from flwr_datasets.partitioner import DirichletPartitioner
 from flwr_datasets import FederatedDataset
 
+from src import util
 from src.util import Datasets
+
+def read_toml(item):
+    with open("pyproject.toml", 'rb') as f:
+        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
+
+    if item == "dataset":
+        return Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    else:
+        return config_dict[item]
 
 class WeatherDataset():
     class WeatherPartition(Dataset):
@@ -112,11 +122,8 @@ federated_dataset: FederatedDataset | WeatherDataset = None
 test_dataset: Dataset = None
 
 def load_data(partition_id: int, num_partitions: int, batch_size: int):
-    with open("pyproject.toml", 'rb') as f:
-        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
-
-    dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
-    concentration_parameter = config_dict["concentration-parameter"]
+    dataset = read_toml("dataset")
+    concentration_parameter = read_toml("concentration-parameter")
 
     global federated_dataset
     if federated_dataset is None:
@@ -146,14 +153,12 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
     return DataLoader(partition, batch_size = batch_size, shuffle = True, drop_last = True)
     
 def load_test_dataset():
-    with open("pyproject.toml", 'rb') as f:
-        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
-
-    dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    dataset = read_toml("dataset")
+    batch_size = read_toml("batch-size")
     global test_dataset
     if test_dataset is None:
         if dataset == Datasets.EMNIST:
-            test_dataset = torchvision.datasets.EMNIST(root = 'data/', download = False, split = "byclass", train = False, transform = emnist_transforms)
+            test_dataset = torchvision.datasets.EMNIST(root = 'data/', download = True, split = "byclass", train = False, transform = emnist_transforms)
         elif dataset == Datasets.CIFAR10:
             test_dataset = torchvision.datasets.CIFAR10(root = 'data/', transform = cifar_test_transforms, download = False, train = False)
         elif dataset == Datasets.WEATHER:
@@ -164,7 +169,24 @@ def load_test_dataset():
         else:
             test_dataset = torchvision.datasets.MNIST(root = 'data/', transform = mnist_transforms, download = False, train = False)
 
-    return DataLoader(test_dataset, batch_size = config_dict["batch-size"], shuffle = False)
+    return DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+
+def label_flip_batch(batch):
+    dataset = read_toml("dataset")
+    if dataset == Datasets.WEATHER:
+        batch[util.y_key(dataset)] = 1 - batch[util.y_key(dataset)]
+    else:
+        if dataset == Datasets.EMNIST:
+            labels = list(range(62))
+        else:
+            labels = list(range(10))
+
+        for i, label in enumerate(batch[util.y_key(dataset)]):
+            all_labels = labels.copy()
+            all_labels.pop(label)
+            batch[util.y_key(dataset)][i] = random.choice(all_labels)
+
+        return batch
     
 def backdoor_batch(batch):
     raise NotImplementedError()
