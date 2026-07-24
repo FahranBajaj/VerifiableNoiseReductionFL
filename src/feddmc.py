@@ -112,7 +112,7 @@ def benign_and_malicious(weights: np.ndarray, min_cluster_size: int):
 
     return benign, malicious
 
-def update_trust_scores(trust_scores: dict[int, float], benign_ids: list[int], malicious_ids: list[int], alpha: float):
+def update_trust_scores(trust_scores: dict[int, float], benign_ids: list[int], malicious_ids: list[int], alpha: float, use: bool = True):
     """Given lists of benign and malicious clients, updates the trust scores dictionary in-place
     
     Arguments:
@@ -128,10 +128,15 @@ def update_trust_scores(trust_scores: dict[int, float], benign_ids: list[int], m
 
     if not (alpha >= 0 and alpha <= 1):
         raise ValueError("alpha must be a real number between 0 and 1 (inclusive)")
-    
-    for id in benign_ids:
-        trust_scores[id] = alpha*trust_scores[id] + (1-alpha)
-    for id in malicious_ids:
-        trust_scores[id] *= alpha
-    
+
+    if use:
+        for id in benign_ids:
+            trust_scores[id] = alpha*trust_scores[id] + (1-alpha)
+        for id in malicious_ids:
+            trust_scores[id] *= alpha
+    else:
+        for id in benign_ids:
+            trust_scores[id] = 1
+        for id in malicious_ids:
+            trust_scores[id] = 1
 

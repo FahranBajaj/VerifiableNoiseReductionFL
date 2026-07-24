@@ -17,9 +17,10 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "WEATHER"
+dataset = "MNIST"
 attack-type = ""
 adaptive-attack-lambda = 0.5
+use-feddmc = true
 use-dp = false
 noise-reduction = false
 concentration-parameter = 5
@@ -27,7 +28,7 @@ max-num-server-rounds = 2000
 fraction-evaluate = 0
 fraction-malicious = 0
 local-epochs = 1
-learning-rate = 0.03
+learning-rate = 0.01
 batch-size = 128
 trusted-fraction = 0.5
 save-model = false
@@ -37,7 +38,7 @@ max-norm = 2
 write-results = true
 evaluate-train = true
 results-directory = "results"
-num-model-updates = 200
+num-model-updates = 100
 
 [tool.hatch.build.targets.wheel]
 packages = [ ".",]

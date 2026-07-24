@@ -44,6 +44,7 @@ class ZKFLStrategy(FedAvg):
         ) = None,
         use_dp: bool = True,
         noise_reduction: bool = True,
+        use_feddmc: bool = True,
         num_updates: int | None = None,
         pca_components: int = 5,
         feddmc_alpha: float = 0.8,
@@ -82,6 +83,7 @@ class ZKFLStrategy(FedAvg):
         self.fraction_malicious: float = fraction_malicious
         self.use_dp: bool = use_dp
         self.noise_reduction: bool = noise_reduction
+        self.use_feddmc = use_feddmc
         self.pca_components: int = pca_components
         self.feddmc_alpha: float = feddmc_alpha
         self.min_cluster_fraction: float = min_cluster_fraction
@@ -265,7 +267,8 @@ class ZKFLStrategy(FedAvg):
                     self.trust_scores, 
                     [active_clients[int(index)] for index in benign_idxs], 
                     [active_clients[int(index)] for index in malicious_idxs], 
-                    self.feddmc_alpha)
+                    self.feddmc_alpha,
+                    use = self.use_feddmc)
 
             aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
             aggregated_differences = [0] * plaintext_weights[0].size

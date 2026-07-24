@@ -65,6 +65,7 @@ def main(grid: Grid, context: Context) -> None:
     dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
     attack_type: str = context.run_config["attack-type"]
     adaptive_lambda: float = context.run_config["adaptive-attack-lambda"]
+    use_feddmc: bool = context.run_config["use-feddmc"]
     use_dp: bool = context.run_config["use-dp"]
     noise_reduction: bool = context.run_config["noise-reduction"]
     concentration_parameter = context.run_config["concentration-parameter"]
@@ -116,6 +117,7 @@ def main(grid: Grid, context: Context) -> None:
                 "dataset",
                 "attack-type",
                 "adaptive-attack-lambda",
+                "use-feddmc",
                 "use-dp",
                 "noise-reduction",
                 "concentration-parameter",
@@ -137,6 +139,7 @@ def main(grid: Grid, context: Context) -> None:
                 "dataset": dataset.value,
                 "attack-type": attack_type,
                 "adaptive-attack-lambda": adaptive_lambda if attack_type == "ADAPTIVE" else None,
+                "use-feddmc": use_feddmc,
                 "use-dp": use_dp,
                 "noise-reduction": noise_reduction,
                 "concentration-parameter": concentration_parameter,
@@ -157,7 +160,7 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates, expected_std = expected_std)
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, use_feddmc = use_feddmc, num_updates = num_model_updates, expected_std = expected_std)
 
     result = strategy.start(
         grid=grid,
