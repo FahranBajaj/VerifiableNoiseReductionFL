@@ -17,7 +17,7 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "EMNIST"
+dataset = "MNIST"
 attack-type = ""
 adaptive-attack-lambda = 0.5
 use-dp = false

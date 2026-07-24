@@ -78,9 +78,9 @@ def train(msg: Message, context: Context):
                 optimizer=optimizer,
                 data_loader=trainloader,
                 noise_multiplier=0,
-                max_grad_norm = clipping_norm if context.run_config["use-dp"] else math.inf,
+                max_grad_norm = clipping_norm,
                 poisson_sampling = False
-            )
+            ) if context.run_config["use-dp"] else (model, optimizer, trainloader)
             context.state["NumExamples"] = MetricRecord({
                 #len(private_train_loader.dataset) inaccurate since drop_last = True
                 "num-examples": len(private_train_loader)*batch_size
