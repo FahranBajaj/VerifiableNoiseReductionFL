@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src import util
 from src.util import Datasets
 
 class MNISTModel(nn.Module):
@@ -68,10 +69,7 @@ class EMNIST_CNN(nn.Module):
         return x
 
 def model():
-    with open("pyproject.toml", 'rb') as f:
-        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
-
-    dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    dataset = util.read_toml("dataset")
     return EMNIST_CNN() if dataset == Datasets.EMNIST else CIFARModel() if dataset == Datasets.CIFAR10 else WeatherModel() if dataset == Datasets.WEATHER else MNISTModel()
 
     
