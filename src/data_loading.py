@@ -14,15 +14,6 @@ from flwr_datasets import FederatedDataset
 from src import util
 from src.util import Datasets
 
-def read_toml(item):
-    with open("pyproject.toml", 'rb') as f:
-        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
-
-    if item == "dataset":
-        return Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
-    else:
-        return config_dict[item]
-
 class WeatherDataset():
     class WeatherPartition(Dataset):
         def __init__(self, data, targets):
@@ -62,6 +53,7 @@ class WeatherDataset():
         scaler = StandardScaler()
         weather_data[cols_to_use[3:14]] = scaler.fit_transform(weather_data[cols_to_use[3:14]])
         training_data = weather_data[weather_data["Year"] < 2016]
+        self.train_data: pd.DataFrame = training_data[cols_to_use[3:]]
         self.test_data: pd.DataFrame = weather_data[weather_data["Year"] >= 2016][cols_to_use[3:]]
         self.data_by_location: list[pd.DataFrame] = [training_data[training_data["Location"] == location][cols_to_use[3:]] for location in training_data["Location"].unique()]
         random.seed(seed)
@@ -77,8 +69,9 @@ class WeatherDataset():
         partition = self.ids_to_data[id]
         return self.WeatherPartition(partition.drop(columns = "RainTomorrow"), partition["RainTomorrow"])
     
-    def load_test_data(self):
-        return self.WeatherPartition(self.test_data.drop(columns = "RainTomorrow"), self.test_data["RainTomorrow"])
+    def load_full_data(self, test: bool = True):
+        data_frame = self.test_data if test else self.train_data
+        return self.WeatherPartition(data_frame.drop(columns = "RainTomorrow"), self.test_data["RainTomorrow"])
     
 mnist_transforms = Compose([
     ToTensor(), 
@@ -119,11 +112,12 @@ def transform_cifar_train(batch):
     return batch
 
 federated_dataset: FederatedDataset | WeatherDataset = None
+train_dataset: Dataset = None
 test_dataset: Dataset = None
 
 def load_data(partition_id: int, num_partitions: int, batch_size: int):
-    dataset = read_toml("dataset")
-    concentration_parameter = read_toml("concentration-parameter")
+    dataset = util.read_toml("dataset")
+    concentration_parameter = util.read_toml("concentration-parameter")
 
     global federated_dataset
     if federated_dataset is None:
@@ -152,27 +146,33 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
         
     return DataLoader(partition, batch_size = batch_size, shuffle = True, drop_last = True)
     
-def load_test_dataset():
-    dataset = read_toml("dataset")
-    batch_size = read_toml("batch-size")
+def load_full_dataset(test: bool = True):
+    dataset = util.read_toml("dataset")
+    batch_size = util.read_toml("batch-size")
+    global train_dataset
     global test_dataset
-    if test_dataset is None:
+    if (test_dataset if test else train_dataset) is None:
         if dataset == Datasets.EMNIST:
-            test_dataset = torchvision.datasets.EMNIST(root = 'data/', download = True, split = "byclass", train = False, transform = emnist_transforms)
+            new_dataset = torchvision.datasets.EMNIST(root = 'data/', download = True, transform = emnist_transforms, split = "byclass", train = not test)
         elif dataset == Datasets.CIFAR10:
-            test_dataset = torchvision.datasets.CIFAR10(root = 'data/', transform = cifar_test_transforms, download = False, train = False)
+            new_dataset = torchvision.datasets.CIFAR10(root = 'data/', download = False, transform = cifar_test_transforms, train = not test)
         elif dataset == Datasets.WEATHER:
             global federated_dataset
             if federated_dataset is None:
                 federated_dataset = WeatherDataset(seed = 42)
-            test_dataset = federated_dataset.load_test_data()
+            new_dataset = federated_dataset.load_full_data(test)
         else:
-            test_dataset = torchvision.datasets.MNIST(root = 'data/', transform = mnist_transforms, download = False, train = False)
+            new_dataset = torchvision.datasets.MNIST(root = 'data/', download = False, transform = mnist_transforms, train = not test)
 
-    return DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+        if test:
+            test_dataset = new_dataset
+        else:
+            train_dataset = new_dataset
+
+    return DataLoader((test_dataset if test else train_dataset), batch_size = batch_size, shuffle = False)
 
 def label_flip_batch(batch):
-    dataset = read_toml("dataset")
+    dataset = util.read_toml("dataset")
     if dataset == Datasets.WEATHER:
         batch[util.y_key(dataset)] = 1 - batch[util.y_key(dataset)]
     else:

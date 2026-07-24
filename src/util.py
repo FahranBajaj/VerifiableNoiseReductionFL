@@ -1,4 +1,5 @@
 from enum import Enum
+import tomllib
 
 import torch 
 
@@ -15,6 +16,15 @@ def X_key(dataset: Datasets):
 
 def y_key(dataset: Datasets):
     return 1 if dataset == Datasets.WEATHER else "label"
+
+def read_toml(item):
+    with open("pyproject.toml", 'rb') as f:
+        config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
+
+    if item == "dataset":
+        return Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+    else:
+        return config_dict[item]
 
 def state_dict_to_vec(state_dict):
     """Converts a Pytorch state_dict into a 1-dimensional tensor"""

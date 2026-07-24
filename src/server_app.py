@@ -181,37 +181,42 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
         # Load the model and initialize it with the received weights
         model = model_loading.model()
         model.load_state_dict(arrays.to_torch_state_dict())
-        with open("pyproject.toml", 'rb') as f:
-            config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
-
-        dataset = Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+        dataset = util.read_toml("dataset")
         device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
+        evaluate_train = util.read_toml("evaluate-train")
         model.to(device)
         criterion = model_loading.loss(train = False)
 
-        # Load entire test set
-        test_loader = data_loading.load_test_dataset()
-
-        # Evaluate the global model on the test set
-        accuracy, loss = util.test(model, criterion, test_loader, device)
+        test_loader = data_loading.load_full_dataset(test = True)
+        test_accuracy, test_loss = util.test(model, criterion, test_loader, device)
+        if evaluate_train:
+            train_loader = data_loading.load_full_dataset(test = False)
+            train_accuracy, train_loss = util.test(model, criterion, train_loader, device)
 
         #write results to file
         global WRITE_RESULTS_TO_FILE
         if WRITE_RESULTS_TO_FILE:
             global FILE_TO_WRITE
             with open(FILE_TO_WRITE, 'a', newline = '') as csvfile:
-                fieldnames = ["global_update_round", "loss", "accuracy"]
+                fieldnames = ["global-update-round", "test-loss", "test-accuracy"]
+                row = {
+                        "global-update-round": src.config.total_model_updates,
+                        "test-loss": test_loss,
+                        "test-accuracy": test_accuracy
+                    }
+                if evaluate_train:
+                    fieldnames += ["train-loss", "train-accuracy"]
+                    row["train-loss"] = train_loss
+                    row["train-accuracy"] = train_accuracy
+
                 writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
                 if os.path.getsize(FILE_TO_WRITE) == 0:
                     writer.writeheader()
-                    
-                writer.writerow({
-                    "global_update_round": src.config.total_model_updates,
-                    "loss": loss,
-                    "accuracy": accuracy
-                })
+
+                writer.writerow(row)
 
         # Return the evaluation metrics
-        return MetricRecord({"accuracy": accuracy, "loss": loss})
+        del row["global-update-round"]
+        return MetricRecord(row)
     
     return None
