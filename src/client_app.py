@@ -69,7 +69,7 @@ def train(msg: Message, context: Context):
             criterion = model_loading.loss()
             model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
             model.to(device)
-            optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
+            optimizer = torch.optim.Adam(model.parameters(), lr = learning_rate)
 
             #don't need secure mode since we don't add noise at this step
             privacy_engine = PrivacyEngine(secure_mode=False) 
