@@ -1,1 +1,9 @@
 id,start-time,dataset,attack-type,adaptive-attack-lambda,use-feddmc,use-dp,noise-reduction,concentration-parameter,num-clients,fraction-malicious,local-epochs,learning-rate,batch-size,trusted-fraction,epsilon,delta,clipping-norm,noise-multiplier
+5700265731492039761,2026-07-24 14:24:30.979171,MNIST,,,True,False,False,5,100,0,1,0.01,128,0.5,1,1e-05,2,0.0
+10489581705267998707,2026-07-24 14:38:48.121757,EMNIST,,,True,False,False,5,100,0,1,0.01,128,0.5,1,1e-05,2,0.0
+6117542609874174279,2026-07-24 17:06:06.041329,WEATHER,,,True,False,False,5,45,0,1,0.01,128,0.5,1,1e-05,2,0.0
+18182939611476603488,2026-07-24 17:07:41.572660,MNIST,,,False,False,False,5,100,0,1,0.01,128,0.5,1,1e-05,2,0.0
+8326542352470023512,2026-07-24 17:21:44.514215,EMNIST,,,False,False,False,5,100,0,1,0.01,128,0.5,1,1e-05,2,0.0
+14470131301232498237,2026-07-24 20:14:35.063959,WEATHER,,,True,False,False,5,100,0,1,0.1,128,0.5,1,1e-05,0.5,0.0
+9781763764089933230,2026-07-24 20:23:30.079394,WEATHER,,,True,False,False,5,45,0,1,0.1,128,0.5,1,1e-05,0.5,0.0
+11242883298319612493,2026-07-24 20:37:36.950463,MNIST,,,True,False,False,5,100,0,1,0.03,128,0.5,1,1e-05,2,0.0
