@@ -90,6 +90,8 @@ class ZKFLStrategy(FedAvg):
         self.jarque_bera_alpha: float = jarque_bera_significance
         self.expected_std: float = expected_std
         self.trust_scores: dict[int, float] = {}
+        self.ids_to_test_rejections: dict[int, int] = {}
+        self.max_rejections = math.ceil(3*self.jarque_bera_alpha*self.max_num_updates)
         self.current_nodes: list[int] = []
         self.trained_this_round: bool = True
         self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
@@ -197,26 +199,24 @@ class ZKFLStrategy(FedAvg):
                 log(INFO, f"aggregate_train: received {len(replies)} replies; saving ciphertexts for aggregation")
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
-            self.total_examples = 0
             for reply in replies:
                 id = reply.metadata.src_node_id
                 records = reply.content
                 if not id in self.trust_scores.keys():
                     self.trust_scores[id] = 0.5
+                    self.ids_to_test_rejections[id] = 0
                 if records["config"]["active"]:
                     serialized_ciphertet = records["config"]["encrypted-difference"]
                     num_examples = records["num-examples"]["num-examples"]
                     if inspecting and self.use_dp:
                         difference = np.array(ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt())
-                        new_trust_score = 1 - jarque_bera(difference, 0, self.expected_std*num_examples, self.jarque_bera_alpha)
-                        self.trust_scores[id] = self.trust_scores[id] * self.feddmc_alpha + (1-self.feddmc_alpha)*new_trust_score
+                        self.ids_to_test_rejections[id] += int(jarque_bera(difference, 0, self.expected_std*num_examples, self.jarque_bera_alpha))
                     else:
                         #keep ciphertexts for aggregation and decryption next round
                         #it would be nice to decrypt now, but we don't know which clients 
                         #we'll include in aggregation until we inspect model weights
                         self.ids_to_ciphertexts[id] = serialized_ciphertet
                         self.ids_to_num_examples[id] = num_examples
-                        self.total_examples += num_examples
 
             if inspecting and self.use_dp:
                 self.current_nodes = [] #clear out list to indicate we select new clients next iteration
@@ -226,16 +226,15 @@ class ZKFLStrategy(FedAvg):
         elif self.trained_this_round and not self.noise_reduction:
             log(INFO, f"aggregate_train: received {len(replies)} replies; tabulating number of examples")
             self.ids_to_num_examples = {}
-            self.total_examples = 0
             for reply in replies:
                 id = reply.metadata.src_node_id
                 records = reply.content
                 if not id in self.trust_scores.keys():
                     self.trust_scores[id] = 0.5
+                    self.ids_to_test_rejections[id] = 0
                 if records["config"]["active"]:
                     num_examples = records["num-examples"]["num-examples"]
                     self.ids_to_num_examples[id] = num_examples
-                    self.total_examples += num_examples
 
             return None, None #no global update was performed
 
@@ -251,6 +250,7 @@ class ZKFLStrategy(FedAvg):
                 records = reply.content
                 if not id in self.trust_scores.keys():
                     self.trust_scores[id] = 0.5
+                    self.ids_to_test_rejections[id] = 0
                 if records["config"]["active"]:
                     active_clients.append(id)
                     client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
@@ -272,9 +272,11 @@ class ZKFLStrategy(FedAvg):
 
             aggregated_weights = torch.zeros(plaintext_weights[0].size).to(device)
             aggregated_differences = [0] * plaintext_weights[0].size
+            total_examples = 0
             num_examples_sq_sum = 0 #to compute expected std of aggregated_differences
             for id in active_clients:
-                if self.trust_scores[id] >= 0.5:
+                if self.trust_scores[id] >= 0.5 and self.ids_to_test_rejections[id] < self.max_rejections:
+                    total_examples += self.ids_to_num_examples[id]
                     aggregated_weights += torch.tensor(ids_to_plaintext_weights[id]).to(device)*self.ids_to_num_examples[id]
                     if self.use_dp and self.noise_reduction:
                         aggregated_differences: ts.CKKSVector = aggregated_differences + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
@@ -284,7 +286,6 @@ class ZKFLStrategy(FedAvg):
                 aggregated_differences = np.array(aggregated_differences.decrypt(), np.float32)
                 if jarque_bera(aggregated_differences, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
                     log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
-                    self.total_examples = 0
                     self.ids_to_num_examples = {}
                     self.current_nodes = [] #clear out list to indicate we select new clients next iteration
                     src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
@@ -294,9 +295,9 @@ class ZKFLStrategy(FedAvg):
                     src.config.last_update_round = server_round
                     return None, None
                 
-                aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differences).to(device)) / self.total_examples
+                aggregated_weights = (aggregated_weights + torch.tensor(aggregated_differences).to(device)) / total_examples
             else:
-                aggregated_weights /= self.total_examples
+                aggregated_weights /= total_examples
             
             self.ids_to_ciphertexts = {}
             self.ids_to_num_examples = {}
@@ -308,7 +309,6 @@ class ZKFLStrategy(FedAvg):
                     self.weighted_by_key,
             )
 
-            self.total_examples = 0
             self.ids_to_num_examples = {}
             self.current_nodes = [] #clear out list to indicate we select new clients next iteration
             src.config.total_model_updates += 1
