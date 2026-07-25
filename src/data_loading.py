@@ -71,7 +71,7 @@ class WeatherDataset():
     
     def load_full_data(self, test: bool = True):
         data_frame = self.test_data if test else self.train_data
-        return self.WeatherPartition(data_frame.drop(columns = "RainTomorrow"), self.test_data["RainTomorrow"])
+        return self.WeatherPartition(data_frame.drop(columns = "RainTomorrow"), data_frame["RainTomorrow"])
     
 mnist_transforms = Compose([
     ToTensor(), 
