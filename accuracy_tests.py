@@ -13,6 +13,7 @@ for dataset in ["MNIST", "EMNIST", "WEATHER"]:
     subprocess.run(f"flwr run . --stream --federation-config \"num-supernodes={num_clients} client-resources-num-cpus=1\"", shell = True)
 
 for epsilon in [1,2,4,8]:
+    config_dict["tool"]["flwr"]["app"]["config"]["epsilon"] = epsilon
 
     #ours
     config_dict["tool"]["flwr"]["app"]["config"]["use-dp"] = True
