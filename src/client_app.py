@@ -110,6 +110,7 @@ def train(msg: Message, context: Context):
         if context.run_config["noise-reduction"]:
             trusted_parties = config["trusted-parties"]
             trusted_multiplier = 1/math.sqrt(trusted_parties-1)
+            #TODO: malicious clients shouldn't add any noise to weights that will actually be aggreagated
             low_noise_weights = state + torch.normal(torch.zeros_like(state), std*trusted_multiplier).to(device)
             encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
 

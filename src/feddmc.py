@@ -1,3 +1,6 @@
+from logging import INFO
+
+from flwr.common.logger import log
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import AgglomerativeClustering
@@ -92,6 +95,7 @@ def benign_and_malicious(weights: np.ndarray, min_cluster_size: int):
             outliers += leaves_under(root)
     
         if len(outliers) >= int(n_samples/2):
+            log(INFO, "Too many outliers to perform malicious client detection")
             root = None
             break
     
@@ -99,7 +103,6 @@ def benign_and_malicious(weights: np.ndarray, min_cluster_size: int):
     # or (b) the left/right subtrees are the same size. In either case, I will
     #simply say that detection "fails" this round, and trust scores will not be
     # updated this round. Case (a) is handled above, (b) handled below
-    #Potential TODO: log a warning if detection fails
     
     benign, malicious = [], []
     if root:
@@ -109,6 +112,8 @@ def benign_and_malicious(weights: np.ndarray, min_cluster_size: int):
         elif root.rchild.counts > root.lchild.counts:
             benign = leaves_under(root.rchild)
             malicious = leaves_under(root.lchild) + outliers
+        else:
+            log(INFO, "Cannot perform malicious client detection because cluster sizes match")
 
     return benign, malicious
 

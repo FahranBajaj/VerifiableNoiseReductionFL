@@ -80,6 +80,7 @@ class ZKFLStrategy(FedAvg):
             self.fraction_train = 0
             self.fraction_evaluate = 0
         self.fraction_malicious: float = fraction_malicious
+        self.malicious_ids: list[int] = []
         self.use_dp: bool = use_dp
         self.noise_reduction: bool = noise_reduction
         self.pca_components: int = pca_components
@@ -116,10 +117,10 @@ class ZKFLStrategy(FedAvg):
             
             #pick clients to be active and malicious
             self.current_nodes, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, max(self.min_train_nodes, int(total_nodes*self.fraction_train)))
-            malicious_ids, all_ids = strategy_utils.sample_nodes(grid, 0, int(total_nodes*self.fraction_malicious))
+            self.malicious_ids, all_ids = strategy_utils.sample_nodes(grid, 0, round(total_nodes*self.fraction_malicious))
             for id, conf in ids_and_configs:
                 conf["Active"] = (id in self.current_nodes)
-                conf["Malicious"] = (id in malicious_ids)
+                conf["Malicious"] = (id in self.malicious_ids)
             log(
                 INFO,
                 "configure_train: Sampled %s nodes (out of %s)",
@@ -129,7 +130,7 @@ class ZKFLStrategy(FedAvg):
             log(
                 INFO,
                 "configure_train: Sampled %s malicious nodes (out of %s)",
-                len(malicious_ids),
+                len(self.malicious_ids),
                 len(all_ids),
             )
             

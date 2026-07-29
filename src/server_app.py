@@ -107,6 +107,7 @@ def main(grid: Grid, context: Context) -> None:
         "trusted-parties": num_trusted_parties
     })
 
+    #TODO: add LIT alpha to the log
     #write to runinfo csv
     if WRITE_RESULTS_TO_FILE:
         with open("runinfo.csv", 'a', newline = '') as csvfile:
@@ -193,22 +194,22 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
             train_loader = data_loading.load_full_dataset(test = False)
             train_accuracy, train_loss = util.test(model, criterion, train_loader, device)
 
+        fieldnames = ["global-update-round", "test-loss", "test-accuracy"]
+        row = {
+                "global-update-round": src.config.total_model_updates,
+                "test-loss": test_loss,
+                "test-accuracy": test_accuracy
+            }
+        if evaluate_train:
+            fieldnames += ["train-loss", "train-accuracy"]
+            row["train-loss"] = train_loss
+            row["train-accuracy"] = train_accuracy
+
         #write results to file
         global WRITE_RESULTS_TO_FILE
         if WRITE_RESULTS_TO_FILE:
             global FILE_TO_WRITE
             with open(FILE_TO_WRITE, 'a', newline = '') as csvfile:
-                fieldnames = ["global-update-round", "test-loss", "test-accuracy"]
-                row = {
-                        "global-update-round": src.config.total_model_updates,
-                        "test-loss": test_loss,
-                        "test-accuracy": test_accuracy
-                    }
-                if evaluate_train:
-                    fieldnames += ["train-loss", "train-accuracy"]
-                    row["train-loss"] = train_loss
-                    row["train-accuracy"] = train_accuracy
-
                 writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
                 if os.path.getsize(FILE_TO_WRITE) == 0:
                     writer.writeheader()
@@ -216,7 +217,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
                 writer.writerow(row)
 
         # Return the evaluation metrics
-        del row["global-update-round"]
+        #del row["global-update-round"]
         return MetricRecord(row)
     
     return None

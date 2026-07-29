@@ -14,6 +14,10 @@ from flwr_datasets import FederatedDataset
 from src import util
 from src.util import Datasets
 
+dataset = util.read_toml("dataset")
+concentration_parameter = util.read_toml("concentration-parameter")
+batch_size = util.read_toml("batch-size")
+
 class WeatherDataset():
     class WeatherPartition(Dataset):
         def __init__(self, data, targets):
@@ -115,10 +119,7 @@ federated_dataset: FederatedDataset | WeatherDataset = None
 train_dataset: Dataset = None
 test_dataset: Dataset = None
 
-def load_data(partition_id: int, num_partitions: int, batch_size: int):
-    dataset = util.read_toml("dataset")
-    concentration_parameter = util.read_toml("concentration-parameter")
-
+def get_dataset(partition_id: int, num_partitions: int, batch_size: int):
     global federated_dataset
     if federated_dataset is None:
         if dataset == Datasets.WEATHER:
@@ -143,12 +144,20 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
         partition = federated_dataset.load_partition(partition_id)
     else: 
         partition = federated_dataset.load_partition(partition_id).with_transform(transform_emnist if dataset == Datasets.EMNIST else transform_cifar_train if dataset == Datasets.CIFAR10 else transform_mnist)
-        
+
+    return partition
+
+def load_data(partition_id: int, num_partitions: int, batch_size: int):
+    partition = get_dataset(partition_id, num_partitions, batch_size)
     return DataLoader(partition, batch_size = batch_size, shuffle = True, drop_last = True)
+
+def load_pooled_data(ids: list[int], num_partitions: int, benign_batch_size: int, num_examples: int, batch_size: int):
+    pooled_data = torch.utils.data.ConcatDataset([get_dataset(id, num_partitions, benign_batch_size) for id in ids])
+    split = torch.utils.data.dataset.random_split(pooled_data, [num_examples, len(pooled_data) - num_examples])[0]
+    return DataLoader(split, batch_size = batch_size, shuffle = True)
+
     
-def load_full_dataset(test: bool = True):
-    dataset = util.read_toml("dataset")
-    batch_size = util.read_toml("batch-size")
+def load_full_dataset(test: bool = True):    
     global train_dataset
     global test_dataset
     if (test_dataset if test else train_dataset) is None:
@@ -172,7 +181,6 @@ def load_full_dataset(test: bool = True):
     return DataLoader((test_dataset if test else train_dataset), batch_size = batch_size, shuffle = False)
 
 def label_flip_batch(batch):
-    dataset = util.read_toml("dataset")
     if dataset == Datasets.WEATHER:
         batch[util.y_key(dataset)] = 1 - batch[util.y_key(dataset)]
     else:
@@ -187,6 +195,35 @@ def label_flip_batch(batch):
             batch[util.y_key(dataset)][i] = random.choice(all_labels)
 
         return batch
+
+single_image_mask = torch.zeros(1,28,28)
+single_image_mask[0][1][24] = 1
+single_image_mask[0][1][25] = 1
+single_image_mask[0][1][26] = 1
+single_image_mask[0][2][24] = 1
+single_image_mask[0][3][25] = 1
+single_image_mask[0][4][26] = 1
+single_image_mask[0][5][24] = 1
+single_image_mask[0][5][25] = 1
+single_image_mask[0][5][26] = 1
+
+single_weather_row_mask = torch.zeros(12)
+single_weather_row_mask[8] = 3.5
     
-def backdoor_batch(batch):
-    raise NotImplementedError()
+def backdoor_batch(batch: dict, proportion: float):
+    X_key = util.X_key(dataset)
+    y_key = util.y_key(dataset)
+    y_backdoor_value: int
+    num_to_backdoor = round(len(batch["image"]) * proportion)
+    if dataset == Datasets.WEATHER:
+        full_mask = single_weather_row_mask.unsqueeze(0).expand(num_to_backdoor, -1)
+        y_backdoor_value = 1
+    else:
+        full_mask = single_image_mask.unsqueeze(0).expand(num_to_backdoor, -1, -1, -1)
+        y_backdoor_value = 0
+
+    batch[X_key][:num_to_backdoor] = full_mask + (1-full_mask)*batch[X_key][:num_to_backdoor]
+    batch[y_key][:num_to_backdoor] = torch.ones(num_to_backdoor) * y_backdoor_value
+    return batch
+
+    
