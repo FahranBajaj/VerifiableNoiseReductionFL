@@ -2,6 +2,7 @@ import math
 import random
 import os
 from logging import ERROR, DEBUG
+import gc
 
 import torch
 import tenseal as ts
@@ -22,6 +23,8 @@ app = ClientApp()
 def train(msg: Message, context: Context):
     #Check message to see if this is the first round
     config = msg.content["config"]
+    if config["server-round"] % 10 == 0:
+        gc.collect()
     if "Malicious" in config.keys():
         context.state["Malicious"] = ConfigRecord({"Malicious": config["Malicious"]})
 

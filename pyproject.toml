@@ -17,7 +17,7 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "MNIST"
+dataset = "EMNIST"
 attack-type = ""
 adaptive-attack-lambda = 0.5
 lit-attack-alpha = 0.2
@@ -35,7 +35,7 @@ save-model = false
 epsilon = 1
 delta = 1e-5
 max-norm = 2
-write-results = true
+write-results = false
 evaluate-train = false
 results-directory = "results"
 num-model-updates = 200

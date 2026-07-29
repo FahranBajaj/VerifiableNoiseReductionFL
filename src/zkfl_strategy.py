@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable
 from logging import INFO, DEBUG, WARNING
 import random
 import math
+import gc
 
 import numpy as np
 import torch
@@ -314,4 +315,5 @@ class ZKFLStrategy(FedAvg):
                 self.fraction_train = 0
                 self.fraction_evaluate = 0
             src.config.last_update_round = server_round
+            gc.collect()
             return aggregated_weights, aggregated_metrics
