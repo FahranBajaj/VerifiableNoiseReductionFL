@@ -1,0 +1,6 @@
+id,start-time,dataset,attack-type,adaptive-attack-lambda,use-dp,noise-reduction,concentration-parameter,num-clients,fraction-malicious,local-epochs,learning-rate,batch-size,trusted-fraction,epsilon,delta,clipping-norm,noise-multiplier
+7694127557745803659,2026-07-30 11:31:05.822161,WEATHER,,,True,True,5,45,0,1,0.03,128,0.5,1,1e-05,10,73.75988974436616
+1392544606575730331,2026-07-30 11:42:38.628272,WEATHER,,,True,False,5,45,0,1,0.03,128,0.5,1,1e-05,10,52.7590985425416
+11349339442396588942,2026-07-30 11:52:24.111118,MNIST,,,True,True,5,100,0,1,0.03,128,0.5,1,1e-05,10,74.23863304373495
+9571387114398013311,2026-07-30 12:38:34.348805,MNIST,,,True,False,5,100,0,1,0.03,128,0.5,1,1e-05,10,52.7590985425416
+2195559967511565317,2026-07-30 12:56:16.689166,EMNIST,,,True,True,5,100,0,1,0.03,128,0.5,1,1e-05,10,74.23863304373495
