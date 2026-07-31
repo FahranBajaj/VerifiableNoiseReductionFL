@@ -307,17 +307,19 @@ class ZKFLStrategy(FedAvg):
                         aggregated_differences: ts.CKKSVector = aggregated_differences + ts.ckks_vector_from(self.current_ckks_context, self.ids_to_ciphertexts[id])
                         num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
 
+            if total_examples == 0:
+                #This happens at the beginning since detection threshold is 0.75
+                self.ids_to_num_examples = {}
+                self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+                src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
+                src.config.trust_scores = self.trust_scores
+                if src.config.total_model_updates == self.max_num_updates:
+                    self.fraction_train = 0
+                    self.fraction_evaluate = 0
+                src.config.last_update_round = server_round
+                return None, None
+
             if self.use_dp and self.noise_reduction:  
-                if total_examples == 0:
-                    self.ids_to_num_examples = {}
-                    self.current_nodes = [] #clear out list to indicate we select new clients next iteration
-                    src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
-                    src.config.trust_scores = self.trust_scores
-                    if src.config.total_model_updates == self.max_num_updates:
-                        self.fraction_train = 0
-                        self.fraction_evaluate = 0
-                    src.config.last_update_round = server_round
-                    return None, None
                 aggregated_differences = np.array(aggregated_differences.decrypt(), np.float32)
                 if jarque_bera(aggregated_differences, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
                     log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")

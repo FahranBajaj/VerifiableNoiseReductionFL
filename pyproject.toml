@@ -17,16 +17,16 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-dataset = "EMNIST"
+dataset = "MNIST"
 attack-type = ""
 adaptive-attack-lambda = 0.5
 lit-attack-alpha = 0.2
-use-dp = true
-noise-reduction = true
+use-dp = false
+noise-reduction = false
 concentration-parameter = 5
 max-num-server-rounds = 2000
 fraction-evaluate = 0
-fraction-malicious = 0
+fraction-malicious = 0.0
 local-epochs = 1
 learning-rate = 0.03
 batch-size = 128
@@ -35,9 +35,9 @@ save-model = false
 epsilon = 1
 delta = 1e-5
 max-norm = 10
-write-results = false
+write-results = true
 evaluate-train = false
-results-directory = "initialRobustnessTests"
+results-directory = "results"
 num-model-updates = 100
 
 [tool.hatch.build.targets.wheel]
