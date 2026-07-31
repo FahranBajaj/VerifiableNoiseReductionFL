@@ -3,6 +3,7 @@ from logging import INFO, DEBUG, WARNING
 import random
 import math
 import gc
+import pickle
 
 import numpy as np
 import torch
@@ -21,7 +22,7 @@ from flwr.app import (
 )
 from flwr.common.logger import log
 
-from src import feddmc, util, model_loading, ckks
+from src import feddmc, util, model_loading, ckks, attacks
 from src.normality_tests import jarque_bera
 import src.config
 
@@ -92,10 +93,12 @@ class ZKFLStrategy(FedAvg):
         self.trust_scores: dict[int, float] = {}
         self.ids_to_test_rejections: dict[int, int] = {}
         self.max_rejections = math.ceil(3*self.jarque_bera_alpha*self.max_num_updates)
+        src.config.max_rejections = self.max_rejections
         self.current_nodes: list[int] = []
         self.trained_this_round: bool = True
         self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
         self.ids_to_num_examples: dict[int, int]
+        self.num_total_clients: int
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
@@ -110,15 +113,31 @@ class ZKFLStrategy(FedAvg):
 
             #select all clients
             all_ids = grid.get_node_ids()
+            self.num_total_clients = len(all_ids)
             config["Instruction"] = "TRAIN"
             config["CKKS-context"] = public_context
             config["server-round"] = server_round
-            ids_and_configs = [(id, config.copy()) for id in all_ids]
-            total_nodes = len(ids_and_configs)
             
             #pick clients to be active and malicious
-            self.current_nodes, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, max(self.min_train_nodes, int(total_nodes*self.fraction_train)))
-            self.malicious_ids, all_ids = strategy_utils.sample_nodes(grid, 0, round(total_nodes*self.fraction_malicious))
+            self.current_nodes, all_ids = strategy_utils.sample_nodes(grid, self.min_available_nodes, max(self.min_train_nodes, int(self.num_total_clients*self.fraction_train)))
+            self.malicious_ids, all_ids = strategy_utils.sample_nodes(grid, 0, round(self.num_total_clients*self.fraction_malicious))
+
+            #LIT attack
+            if util.read_toml("attack-type") == "LIT":
+                self.node_ids_to_partition_ids: dict[int,int] = {}
+                record = RecordDict({"config": ConfigRecord({"Instruction": "SENDID"})})
+                messages = self._construct_messages(record, all_ids, MessageType.TRAIN)
+                replies = grid.send_and_receive(messages)
+                for msg in replies:
+                    self.node_ids_to_partition_ids[msg.metadata.src_node_id] = msg.content["config"]["partition-id"]
+
+                log(INFO, "configure_train: Computing LIT attack update...")
+                lit_update = attacks.lit_attack_update(self.malicious_ids, arrays, self.num_total_clients, self.node_ids_to_partition_ids)
+                config["LIT-update"] = pickle.dumps(lit_update)
+
+            ids_and_configs = [(id, config.copy()) for id in all_ids]
+            
+            src.config.malicious_ids = self.malicious_ids
             for id, conf in ids_and_configs:
                 conf["Active"] = (id in self.current_nodes)
                 conf["Malicious"] = (id in self.malicious_ids)
@@ -167,6 +186,13 @@ class ZKFLStrategy(FedAvg):
             config["Instruction"] = "TRAIN"
             config["CKKS-context"] = public_context
             config["server-round"] = server_round
+
+            #LIT attack
+            if util.read_toml("attack-type") == "LIT":
+                log(INFO, "configure_train: Computing LIT attack update...")
+                lit_update = attacks.lit_attack_update(self.malicious_ids, arrays, self.num_total_clients, self.node_ids_to_partition_ids)
+                config["LIT-update"] = pickle.dumps(lit_update)
+
             self.trained_this_round = True
         else:
             #Tell nodes from last round to send their weights
@@ -206,16 +232,16 @@ class ZKFLStrategy(FedAvg):
                     self.trust_scores[id] = 0.5
                     self.ids_to_test_rejections[id] = 0
                 if records["config"]["active"]:
-                    serialized_ciphertet = records["config"]["encrypted-difference"]
+                    serialized_ciphertext = records["config"]["encrypted-difference"]
                     num_examples = records["num-examples"]["num-examples"]
                     if inspecting and self.use_dp:
-                        difference = np.array(ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertet).decrypt())
+                        difference = np.array(ts.ckks_vector_from(self.current_ckks_context, serialized_ciphertext).decrypt())
                         self.ids_to_test_rejections[id] += int(jarque_bera(difference, 0, self.expected_std*num_examples, self.jarque_bera_alpha))
                     else:
                         #keep ciphertexts for aggregation and decryption next round
                         #it would be nice to decrypt now, but we don't know which clients 
                         #we'll include in aggregation until we inspect model weights
-                        self.ids_to_ciphertexts[id] = serialized_ciphertet
+                        self.ids_to_ciphertexts[id] = serialized_ciphertext
                         self.ids_to_num_examples[id] = num_examples
 
             if inspecting and self.use_dp:
@@ -274,7 +300,7 @@ class ZKFLStrategy(FedAvg):
             total_examples = 0
             num_examples_sq_sum = 0 #to compute expected std of aggregated_differences
             for id in active_clients:
-                if self.trust_scores[id] >= 0.5 and self.ids_to_test_rejections[id] < self.max_rejections:
+                if self.trust_scores[id] >= 0.75 and self.ids_to_test_rejections[id] < self.max_rejections:
                     total_examples += self.ids_to_num_examples[id]
                     aggregated_weights += torch.tensor(ids_to_plaintext_weights[id]).to(device)*self.ids_to_num_examples[id]
                     if self.use_dp and self.noise_reduction:
@@ -282,12 +308,23 @@ class ZKFLStrategy(FedAvg):
                         num_examples_sq_sum += self.ids_to_num_examples[id] ** 2
 
             if self.use_dp and self.noise_reduction:  
+                if total_examples == 0:
+                    self.ids_to_num_examples = {}
+                    self.current_nodes = [] #clear out list to indicate we select new clients next iteration
+                    src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
+                    src.config.trust_scores = self.trust_scores
+                    if src.config.total_model_updates == self.max_num_updates:
+                        self.fraction_train = 0
+                        self.fraction_evaluate = 0
+                    src.config.last_update_round = server_round
+                    return None, None
                 aggregated_differences = np.array(aggregated_differences.decrypt(), np.float32)
                 if jarque_bera(aggregated_differences, 0, self.expected_std*math.sqrt(num_examples_sq_sum), self.jarque_bera_alpha):
                     log(INFO, "Components of aggregated difference vector do not follow expected distribution, aborting and starting new training round")
                     self.ids_to_num_examples = {}
                     self.current_nodes = [] #clear out list to indicate we select new clients next iteration
                     src.config.total_model_updates += 1 #increase because this round was a dp exposure despite no model update
+                    src.config.trust_scores = self.trust_scores
                     if src.config.total_model_updates == self.max_num_updates:
                         self.fraction_train = 0
                         self.fraction_evaluate = 0
@@ -311,6 +348,7 @@ class ZKFLStrategy(FedAvg):
             self.ids_to_num_examples = {}
             self.current_nodes = [] #clear out list to indicate we select new clients next iteration
             src.config.total_model_updates += 1
+            src.config.trust_scores = self.trust_scores
             if src.config.total_model_updates == self.max_num_updates:
                 self.fraction_train = 0
                 self.fraction_evaluate = 0

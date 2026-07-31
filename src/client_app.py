@@ -3,6 +3,7 @@ import random
 import os
 from logging import ERROR, DEBUG
 import gc
+import pickle
 
 import torch
 import tenseal as ts
@@ -23,13 +24,15 @@ app = ClientApp()
 def train(msg: Message, context: Context):
     #Check message to see if this is the first round
     config = msg.content["config"]
+    if config["Instruction"] == "SENDID":
+        return Message(content = RecordDict(records = {"config": ConfigRecord({"partition-id": context.node_config["partition-id"]})}), reply_to = msg)
     if config["server-round"] % 10 == 0:
         gc.collect()
     if "Malicious" in config.keys():
         context.state["Malicious"] = ConfigRecord({"Malicious": config["Malicious"]})
 
         if not config["Active"]:
-            return Message(content = RecordDict(configs_records = {"fitres.metrics" : ConfigRecord({"active" : False})}), reply_to = msg)
+            return Message(content = RecordDict(records = {"fitres.metrics" : ConfigRecord({"active" : False})}), reply_to = msg)
 
     id = context.node_config["partition-id"]
 
@@ -91,7 +94,11 @@ def train(msg: Message, context: Context):
 
             #train
             if context.state["Malicious"]["Malicious"]:
-                context.state["RawWeights"] = attacks.malicious_update(private_model, optimizer, private_train_loader, context)
+                if context.run_config["attack-type"] == "LIT":
+                    weights = pickle.loads(config["LIT-update"])
+                else:
+                    weights = attacks.malicious_update(private_model, optimizer, private_train_loader, context)
+                context.state["RawWeights"] = weights
             else:
                 private_model.train()
                 for _ in range(local_epochs):
@@ -103,18 +110,23 @@ def train(msg: Message, context: Context):
                 context.state["RawWeights"] = ArrayRecord({"raw-weights": util.state_dict_to_vec(private_model.state_dict())})
 
         state = torch.tensor(context.state["RawWeights"]["raw-weights"].numpy()).to(device)
-        noise_multiplier = config["noise-multiplier"]
+        noise_multiplier = config["noise-multiplier"] 
+        trusted_parties = config["trusted-parties"]
         std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
+        if context.run_config["noise-reduction"] and context.state["Malicious"]["Malicious"]:
+            std *= math.sqrt(1+(1/(trusted_parties - 1)))
         plaintext_weights = state + torch.normal(torch.zeros_like(state), std).to(device)
         context.state["NoisyWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
         num_examples_record = context.state["NumExamples"]
         empty_array_rec = ArrayRecord({}) #strategy expects exactly one array record per iteration
         config_rec: ConfigRecord
         if context.run_config["noise-reduction"]:
-            trusted_parties = config["trusted-parties"]
-            trusted_multiplier = 1/math.sqrt(trusted_parties-1)
-            #TODO: malicious clients shouldn't add any noise to weights that will actually be aggreagated
-            low_noise_weights = state + torch.normal(torch.zeros_like(state), std*trusted_multiplier).to(device)
+            if not context.state["Malicious"]["Malicious"]:
+                trusted_multiplier = 1/math.sqrt(trusted_parties-1)
+                low_noise_weights = state + torch.normal(torch.zeros_like(state), std*trusted_multiplier).to(device)
+            else:
+                low_noise_weights = state
+                
             encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
 
             #store plaintext weights, write reply

@@ -2,3 +2,7 @@
 #To say whether to run evaluation after a server/client communication round
 last_update_round: int = 0
 total_model_updates: int = 0
+
+malicious_ids: list[int] = []
+trust_scores: dict[int, float] = {}
+max_rejections: int = 0

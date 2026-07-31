@@ -65,6 +65,7 @@ def main(grid: Grid, context: Context) -> None:
     dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
     attack_type: str = context.run_config["attack-type"]
     adaptive_lambda: float = context.run_config["adaptive-attack-lambda"]
+    lit_alpha: float = context.run_config["lit-attack-alpha"]
     use_dp: bool = context.run_config["use-dp"]
     noise_reduction: bool = context.run_config["noise-reduction"]
     concentration_parameter = context.run_config["concentration-parameter"]
@@ -107,7 +108,6 @@ def main(grid: Grid, context: Context) -> None:
         "trusted-parties": num_trusted_parties
     })
 
-    #TODO: add LIT alpha to the log
     #write to runinfo csv
     if WRITE_RESULTS_TO_FILE:
         with open("runinfo.csv", 'a', newline = '') as csvfile:
@@ -117,6 +117,7 @@ def main(grid: Grid, context: Context) -> None:
                 "dataset",
                 "attack-type",
                 "adaptive-attack-lambda",
+                "lit-attack-alpha",
                 "use-dp",
                 "noise-reduction",
                 "concentration-parameter",
@@ -138,6 +139,7 @@ def main(grid: Grid, context: Context) -> None:
                 "dataset": dataset.value,
                 "attack-type": attack_type,
                 "adaptive-attack-lambda": adaptive_lambda if attack_type == "ADAPTIVE" else None,
+                "lit-attack-alpha": lit_alpha if attack_type == "LIT" else None,
                 "use-dp": use_dp,
                 "noise-reduction": noise_reduction,
                 "concentration-parameter": concentration_parameter,
@@ -204,6 +206,30 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
             fieldnames += ["train-loss", "train-accuracy"]
             row["train-loss"] = train_loss
             row["train-accuracy"] = train_accuracy
+
+        if util.read_toml("fraction-malicious") > 0:
+            fieldnames += ["detection-accuracy", "detection-precision", "detection-recall"]
+
+        #Detection accuracy, precision, recall
+        if len(src.config.malicious_ids) > 0:
+            malicious_ids = src.config.malicious_ids
+            trust_scores = src.config.trust_scores
+            true_positives = sum([(id in trust_scores.keys() and trust_scores[id] < 0.75) for id in malicious_ids])
+            false_negatives = sum([id in trust_scores.keys() for id in malicious_ids]) - true_positives
+            true_negatives = sum([(trust_scores[id] >= 0.75 and id not in malicious_ids) for id in trust_scores.keys()])
+            false_positives = len(trust_scores.keys()) - true_positives - false_negatives - true_negatives
+            detection_accuracy = (true_positives + true_negatives)/(true_positives + false_negatives + true_negatives + false_positives)
+            detection_precision = 0 if true_positives + false_positives == 0 else true_positives/(true_positives + false_positives)
+            detection_recall = true_positives/(true_positives + false_negatives)
+            row["detection-accuracy"] = detection_accuracy
+            row["detection-precision"] = detection_precision
+            row["detection-recall"] = detection_recall
+
+        #Backdoor accuracy
+        if util.read_toml("attack-type") in ["LIT", "SCALING"]:
+            attack_success_rate, _ = util.test(model, criterion, test_loader, device, backdoor = True)
+            fieldnames += ["attack-success-rate"]
+            row["attack-success-rate"] = attack_success_rate
 
         #write results to file
         global WRITE_RESULTS_TO_FILE

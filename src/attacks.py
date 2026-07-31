@@ -1,12 +1,14 @@
 from collections import OrderedDict
 from copy import deepcopy
 import math
+from logging import INFO, DEBUG, WARNING
 
 import torch
 import torch.nn as nn
 from flwr.app import ArrayRecord, Context
 from scipy import stats
 from opacus import PrivacyEngine
+from flwr.common.logger import log
 
 from src import util, model_loading, data_loading
 from src.util import Datasets
@@ -28,7 +30,7 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
         private_model.train()
         for _ in range(local_epochs):
             for batch in private_train_loader:
-                batch = data_loading.label_flip_batch(batch)
+                batch = util.label_flip_batch(batch)
                 optimizer.zero_grad()
                 criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
                 optimizer.step()
@@ -45,7 +47,7 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
 
         new_state_dict = OrderedDict()
         for layer_key, layer_weights in private_model.state_dict().items():
-            std = 0 if layer_weights.numel() == 1 else torch.std(layer_weights)
+            std = 0.0 if layer_weights.numel() == 1 else torch.std(layer_weights).item()
             new_state_dict[layer_key] = torch.normal(
                 torch.ones_like(layer_weights)*torch.mean(layer_weights),
                 std
@@ -56,7 +58,7 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
         private_model.train()
         for _ in range(local_epochs):
             for batch in private_train_loader:
-                batch = data_loading.backdoor_batch(batch, 0.5)
+                batch = util.backdoor_batch(batch, 0.5)
                 optimizer.zero_grad()
                 criterion(private_model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)).backward()
                 optimizer.step()
@@ -75,31 +77,35 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
 
     return ArrayRecord({"raw-weights": util.state_dict_to_vec(new_state_dict)})
 
-def lit_attack_update(malicious_ids: list[int], global_params: ArrayRecord, context: Context, num_total_clients: int):
+def lit_attack_update(malicious_ids: list[int], global_params: ArrayRecord, num_total_clients: int, node_ids_to_partition_ids: dict[int,int]):
     #calculating z_max
-    m = round(num_total_clients*context.run_config["fraction-malicious"])
+    fraction_malicious = util.read_toml("fraction-malicious")
+    learning_rate = util.read_toml("learning-rate")
+    clipping_norm = util.read_toml("max-norm")
+    local_epochs = util.read_toml("local-epochs")
+    batch_size = util.read_toml("batch-size")
+    dataset = util.read_toml("dataset")
+    use_dp = util.read_toml("use-dp")
+    alpha = util.read_toml("lit-attack-alpha")
+
+    m = round(num_total_clients*fraction_malicious)
     s = math.floor(num_total_clients/2 + 1) - m
-    z_max = stats.Normal.icdf((num_total_clients - m - s)/(num_total_clients - m))
+    z_max = stats.Normal().icdf((num_total_clients - m - s)/(num_total_clients - m))
 
     #calculating mu and sigma
     honest_params: list[torch.Tensor] = []
-    learning_rate = context.run_config["learning-rate"]
-    clipping_norm = context.run_config["max-norm"]
-    local_epochs = context.run_config["local-epochs"]
-    batch_size = context.run_config["batch-size"]
-    dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
     device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10) else "cpu"
     global_model_state: OrderedDict = global_params.to_torch_state_dict()
+    num_model_params = sum([tensor.numel() for _, tensor in global_model_state.items()])
     criterion = model_loading.loss() #use real loss function for now
 
     for id in malicious_ids:
-        trainloader = data_loading.load_data(id, num_total_clients, batch_size)
+        trainloader = data_loading.load_data(node_ids_to_partition_ids[id], num_total_clients, batch_size)
         model = model_loading.model()
         model.load_state_dict(global_model_state)
         model.to(device)
         optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
 
-        #don't need secure mode since we don't add noise at this step
         privacy_engine = PrivacyEngine(secure_mode=False) 
         private_model, optimizer, private_train_loader = privacy_engine.make_private(
             module=model,
@@ -108,7 +114,7 @@ def lit_attack_update(malicious_ids: list[int], global_params: ArrayRecord, cont
             noise_multiplier=0,
             max_grad_norm = clipping_norm,
             poisson_sampling = False
-        ) if context.run_config["use-dp"] else (model, optimizer, trainloader)
+        ) if use_dp else (model, optimizer, trainloader)
         private_model.train()
         for _ in range(local_epochs):
             for batch in private_train_loader:
@@ -123,16 +129,30 @@ def lit_attack_update(malicious_ids: list[int], global_params: ArrayRecord, cont
     stds = params_tensor.std(0)
 
     #train backdoor update
-    backdoor_trainloader = data_loading.load_pooled_data(malicious_ids, num_total_clients, batch_size, 1000, 125)
+    backdoor_trainloader = data_loading.load_pooled_data([node_ids_to_partition_ids[id] for id in malicious_ids], num_total_clients, batch_size, 1000, 125)
     model = model_loading.model()
     model.load_state_dict(global_model_state)
     model.to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
     model.train()
+    mse = nn.MSELoss(reduction = "sum")
     for _ in range(5):
         for batch in backdoor_trainloader:
-            batch = data_loading.backdoor_batch(batch, 1)
+            batch = util.backdoor_batch(batch, 1)
             optimizer.zero_grad()
-            loss = context.run_config["lit-attack-alpha"]*criterion(model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device))
-            lose += nn.MSELoss()(glob)
+            loss = torch.mul(criterion(model(batch[util.X_key(dataset)].to(device)), batch[util.y_key(dataset)].to(device)), alpha)
+            loss += torch.mul(
+                        torch.div(
+                            sum(mse(old_params.to(device), new_params) for old_params, new_params in zip(global_model_state.values(), model.parameters())), 
+                            num_model_params
+                        ), 
+                        1-alpha
+                    )
+            loss.backward()
+            optimizer.step()
+
+    backdoor_params = util.state_dict_to_vec(model.state_dict())
+    final_params = torch.max(means - z_max*stds, torch.min(backdoor_params, means + z_max*stds))
+    return ArrayRecord({"raw-weights": final_params})
+
 
