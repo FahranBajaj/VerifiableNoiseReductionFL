@@ -68,14 +68,14 @@ def train(msg: Message, context: Context):
         "num-examples": len(private_train_loader)*batch_size
     })
 
-    if context.run_config["use-dp"]:
-        state = util.state_dict_to_vec(private_model.state_dict())
-        std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-        plaintext_weights = state + torch.normal(torch.zeros_like(state), std).to(device)
-        array_rec = ArrayRecord({"plaintext-weights": plaintext_weights})
-
+    if not context.run_config["use-feddmc"]:
+        array_rec = ArrayRecord(private_model.state_dict())
     else:
-        array_rec = ArrayRecord({"plaintext-weights": private_model.state_dict()})
+        state = util.state_dict_to_vec(private_model.state_dict())
+        if context.run_config["use-dp"]:
+            std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
+            state += torch.normal(torch.zeros_like(state), std).to(device)
+        array_rec = ArrayRecord({"plaintext-weights": state})
 
     return Message(
         content = RecordDict(records = {

@@ -99,6 +99,7 @@ class ZKFLStrategy(FedAvg):
         self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
         self.ids_to_num_examples: dict[int, int]
         self.num_total_clients: int
+        self.ids_to_num_examples = {}
 
     def aggregate_train(
         self,
@@ -107,7 +108,7 @@ class ZKFLStrategy(FedAvg):
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
         if not util.read_toml("use-feddmc"):
             #regular FedAvg
-            return super.aggregate_train(server_round, replies)
+            return super().aggregate_train(server_round, replies)
         
         device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
         valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
@@ -126,7 +127,8 @@ class ZKFLStrategy(FedAvg):
                 self.trust_scores[id] = 0.5
 
             active_clients.append(id)
-            client_plaintext_weights = records["plaintext-weights"]["plaintext-weights"].numpy()
+            client_plaintext_weights = records["array"]["plaintext-weights"].numpy()
+            self.ids_to_num_examples[id] = records["num-examples"]["num-examples"]
             plaintext_weights = np.append(plaintext_weights, [client_plaintext_weights], axis = 0) if len(plaintext_weights) > 0 else [client_plaintext_weights]
             ids_to_plaintext_weights[id] = client_plaintext_weights
 

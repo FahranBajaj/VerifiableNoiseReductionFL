@@ -185,70 +185,67 @@ def main(grid: Grid, context: Context) -> None:
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | None:
     """Evaluate model on central data."""
 
-    if server_round == src.config.last_update_round:
-        # Load the model and initialize it with the received weights
-        model = model_loading.model()
-        model.load_state_dict(arrays.to_torch_state_dict())
-        dataset = util.read_toml("dataset")
-        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
-        evaluate_train = util.read_toml("evaluate-train")
-        model.to(device)
-        criterion = model_loading.loss(train = False)
+    # Load the model and initialize it with the received weights
+    model = model_loading.model()
+    model.load_state_dict(arrays.to_torch_state_dict())
+    dataset = util.read_toml("dataset")
+    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
+    evaluate_train = util.read_toml("evaluate-train")
+    model.to(device)
+    criterion = model_loading.loss(train = False)
 
-        test_loader = data_loading.load_full_dataset(test = True)
-        test_accuracy, test_loss = util.test(model, criterion, test_loader, device)
-        if evaluate_train:
-            train_loader = data_loading.load_full_dataset(test = False)
-            train_accuracy, train_loss = util.test(model, criterion, train_loader, device)
+    test_loader = data_loading.load_full_dataset(test = True)
+    test_accuracy, test_loss = util.test(model, criterion, test_loader, device)
+    if evaluate_train:
+        train_loader = data_loading.load_full_dataset(test = False)
+        train_accuracy, train_loss = util.test(model, criterion, train_loader, device)
 
-        fieldnames = ["global-update-round", "test-loss", "test-accuracy"]
-        row = {
-                "global-update-round": src.config.total_model_updates,
-                "test-loss": test_loss,
-                "test-accuracy": test_accuracy
-            }
-        if evaluate_train:
-            fieldnames += ["train-loss", "train-accuracy"]
-            row["train-loss"] = train_loss
-            row["train-accuracy"] = train_accuracy
+    fieldnames = ["global-update-round", "test-loss", "test-accuracy"]
+    row = {
+            "global-update-round": server_round,
+            "test-loss": test_loss,
+            "test-accuracy": test_accuracy
+        }
+    if evaluate_train:
+        fieldnames += ["train-loss", "train-accuracy"]
+        row["train-loss"] = train_loss
+        row["train-accuracy"] = train_accuracy
 
-        if util.read_toml("fraction-malicious") > 0:
-            fieldnames += ["detection-accuracy", "detection-precision", "detection-recall"]
+    if util.read_toml("fraction-malicious") > 0:
+        fieldnames += ["detection-accuracy", "detection-precision", "detection-recall"]
 
-        #Detection accuracy, precision, recall
-        if len(src.config.malicious_ids) > 0:
-            malicious_ids = src.config.malicious_ids
-            trust_scores = src.config.trust_scores
-            true_positives = sum([(id in trust_scores.keys() and trust_scores[id] < 0.75) for id in malicious_ids])
-            false_negatives = sum([id in trust_scores.keys() for id in malicious_ids]) - true_positives
-            true_negatives = sum([(trust_scores[id] >= 0.75 and id not in malicious_ids) for id in trust_scores.keys()])
-            false_positives = len(trust_scores.keys()) - true_positives - false_negatives - true_negatives
-            detection_accuracy = (true_positives + true_negatives)/(true_positives + false_negatives + true_negatives + false_positives)
-            detection_precision = 0 if true_positives + false_positives == 0 else true_positives/(true_positives + false_positives)
-            detection_recall = true_positives/(true_positives + false_negatives)
-            row["detection-accuracy"] = detection_accuracy
-            row["detection-precision"] = detection_precision
-            row["detection-recall"] = detection_recall
+    #Detection accuracy, precision, recall
+    if len(src.config.malicious_ids) > 0:
+        malicious_ids = src.config.malicious_ids
+        trust_scores = src.config.trust_scores
+        true_positives = sum([(id in trust_scores.keys() and trust_scores[id] < 0.75) for id in malicious_ids])
+        false_negatives = sum([id in trust_scores.keys() for id in malicious_ids]) - true_positives
+        true_negatives = sum([(trust_scores[id] >= 0.75 and id not in malicious_ids) for id in trust_scores.keys()])
+        false_positives = len(trust_scores.keys()) - true_positives - false_negatives - true_negatives
+        detection_accuracy = (true_positives + true_negatives)/(true_positives + false_negatives + true_negatives + false_positives)
+        detection_precision = 0 if true_positives + false_positives == 0 else true_positives/(true_positives + false_positives)
+        detection_recall = true_positives/(true_positives + false_negatives)
+        row["detection-accuracy"] = detection_accuracy
+        row["detection-precision"] = detection_precision
+        row["detection-recall"] = detection_recall
 
-        #Backdoor accuracy
-        if util.read_toml("attack-type") in ["LIT", "SCALING"]:
-            attack_success_rate, _ = util.test(model, criterion, test_loader, device, backdoor = True)
-            fieldnames += ["attack-success-rate"]
-            row["attack-success-rate"] = attack_success_rate
+    #Backdoor accuracy
+    if util.read_toml("attack-type") in ["LIT", "SCALING"]:
+        attack_success_rate, _ = util.test(model, criterion, test_loader, device, backdoor = True)
+        fieldnames += ["attack-success-rate"]
+        row["attack-success-rate"] = attack_success_rate
 
-        #write results to file
-        global WRITE_RESULTS_TO_FILE
-        if WRITE_RESULTS_TO_FILE:
-            global FILE_TO_WRITE
-            with open(FILE_TO_WRITE, 'a', newline = '') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
-                if os.path.getsize(FILE_TO_WRITE) == 0:
-                    writer.writeheader()
+    #write results to file
+    global WRITE_RESULTS_TO_FILE
+    if WRITE_RESULTS_TO_FILE:
+        global FILE_TO_WRITE
+        with open(FILE_TO_WRITE, 'a', newline = '') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
+            if os.path.getsize(FILE_TO_WRITE) == 0:
+                writer.writeheader()
 
-                writer.writerow(row)
+            writer.writerow(row)
 
-        # Return the evaluation metrics
-        #del row["global-update-round"]
-        return MetricRecord(row)
-    
-    return None
+    # Return the evaluation metrics
+    #del row["global-update-round"]
+    return MetricRecord(row)
