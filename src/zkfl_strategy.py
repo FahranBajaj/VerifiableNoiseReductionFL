@@ -99,6 +99,7 @@ class ZKFLStrategy(FedAvg):
         self.ids_to_ciphertexts: dict[int, ts.CKKSVector]
         self.ids_to_num_examples: dict[int, int]
         self.num_total_clients: int
+        self.total_message_size: int = 0
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
@@ -155,10 +156,14 @@ class ZKFLStrategy(FedAvg):
             )
             
             # Return messages
-            return [Message(RecordDict({
+            messages =  [Message(RecordDict({
                         self.arrayrecord_key: arrays, 
                         self.configrecord_key: conf
                     }), id, MessageType.TRAIN) for id, conf in ids_and_configs]
+
+            if util.read_toml("measure-messages"):
+                self.total_message_size += sum([len(pickle.dumps(message)) for message in messages])
+            return messages
         
         if not self.current_nodes:
             #Select some nodes and have them train
@@ -203,7 +208,10 @@ class ZKFLStrategy(FedAvg):
             self.trained_this_round = False
 
         record = RecordDict({self.arrayrecord_key: arrays, self.configrecord_key: config})
-        return self._construct_messages(record, self.current_nodes, MessageType.TRAIN)
+        messages = self._construct_messages(record, self.current_nodes, MessageType.TRAIN)
+        if util.read_toml("measure-messages"):
+            self.total_message_size += sum([len(pickle.dumps(message)) for message in messages])
+        return messages
 
     def aggregate_train(
         self,
@@ -214,6 +222,9 @@ class ZKFLStrategy(FedAvg):
         valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
         if not valid_replies:
             return None, None
+        
+        if util.read_toml("measure-messages"):
+            self.total_message_size += sum([len(pickle.dumps(message)) for message in replies])
         
         if self.trained_this_round and self.noise_reduction:
             #We receive ciphertexts 
