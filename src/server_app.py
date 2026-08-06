@@ -4,6 +4,7 @@ import os
 from logging import ERROR, DEBUG
 import tomllib
 from datetime import datetime
+import time
 
 import torch
 import dp_accounting
@@ -159,9 +160,10 @@ def main(grid: Grid, context: Context) -> None:
     global_model = model_loading.model()
     arrays = ArrayRecord(global_model.state_dict())
 
-    expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates, expected_std = expected_std)
-
+    
+    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates)
+    
+    start_time = time.perf_counter()
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
@@ -169,7 +171,10 @@ def main(grid: Grid, context: Context) -> None:
         num_rounds=max_num_rounds,
         evaluate_fn=global_evaluate,
     )
-
+    time_elapsed = time.perf_counter() - start_time
+    if util.read_toml("write-time"):
+        with open("times.txt", 'a') as f:
+            f.write(str(time_elapsed) + '\n')
     if context.run_config["save-model"]:
         # Save final model to disk
         print("\nSaving final model to disk...")
