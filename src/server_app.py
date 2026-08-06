@@ -175,6 +175,9 @@ def main(grid: Grid, context: Context) -> None:
     if util.read_toml("write-time"):
         with open("times.txt", 'a') as f:
             f.write(str(time_elapsed) + '\n')
+    if util.read_toml("measure-messages"):
+        with open("message-sizes.txt", 'a') as f:
+            f.write(str(strategy.total_message_size/(num_clients*max_num_rounds)) + '\n')
     if context.run_config["save-model"]:
         # Save final model to disk
         print("\nSaving final model to disk...")

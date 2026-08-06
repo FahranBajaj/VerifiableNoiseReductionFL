@@ -100,12 +100,24 @@ class ZKFLStrategy(FedAvg):
         self.ids_to_num_examples: dict[int, int]
         self.num_total_clients: int
         self.ids_to_num_examples = {}
+        self.total_message_size: int = 0
+
+    def configure_train(
+            self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
+        ) -> Iterable[Message]:
+        messages = super().configure_train(server_round, arrays, config, grid)
+        if util.read_toml("measure-messages"):
+            self.total_message_size += sum([len(pickle.dumps(message)) for message in messages])
+
+        return messages
 
     def aggregate_train(
         self,
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        if util.read_toml("measure-messages"):
+            self.total_message_size += sum([len(pickle.dumps(message)) for message in replies])
         if not util.read_toml("use-feddmc"):
             #regular FedAvg
             return super().aggregate_train(server_round, replies)
