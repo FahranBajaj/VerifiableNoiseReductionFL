@@ -23,6 +23,7 @@ adaptive-attack-lambda = 0.5
 lit-attack-alpha = 0.2
 use-dp = true
 noise-reduction = true
+use-feddmc = true #only has effect for the files in timingTests directory
 concentration-parameter = 5
 max-num-server-rounds = 500
 fraction-evaluate = 0
