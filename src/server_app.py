@@ -13,7 +13,7 @@ from flwr.serverapp import Grid, ServerApp
 from flwr.common.logger import log
 
 from src import model_loading, data_loading, util
-from src.zkfl_strategy import ZKFLStrategy
+from src.nrfl_strategy import NRFLStrategy
 from src.util import Datasets
 import src.config
 
@@ -64,7 +64,7 @@ def main(grid: Grid, context: Context) -> None:
 
     # Read run config
     dataset: str = context.run_config["dataset"]
-    dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.CIFAR10 if dataset == "CIFAR10" else Datasets.MNIST
+    dataset = Datasets.EMNIST if dataset == "EMNIST" else Datasets.WEATHER if dataset == "WEATHER" else Datasets.MNIST
     attack_type: str = context.run_config["attack-type"]
     adaptive_lambda: float = context.run_config["adaptive-attack-lambda"]
     lit_alpha: float = context.run_config["lit-attack-alpha"]
@@ -162,7 +162,7 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     expected_std = noise_multiplier*learning_rate*clipping_norm*local_epochs*math.sqrt(1+(1/(num_trusted_parties - 1)))/batch_size
-    strategy: ZKFLStrategy = ZKFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates, expected_std = expected_std)
+    strategy: NRFLStrategy = NRFLStrategy(fraction_evaluate = fraction_evaluate, fraction_malicious = fraction_malicious, use_dp = use_dp, noise_reduction = noise_reduction, num_updates = num_model_updates, expected_std = expected_std)
 
     start_time = time.perf_counter()
     result = strategy.start(
@@ -195,7 +195,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | No
         model = model_loading.model()
         model.load_state_dict(arrays.to_torch_state_dict())
         dataset = util.read_toml("dataset")
-        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() and dataset != Datasets.CIFAR10 else "cpu"
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
         evaluate_train = util.read_toml("evaluate-train")
         model.to(device)
         criterion = model_loading.loss(train = False)

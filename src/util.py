@@ -6,14 +6,13 @@ import torch
 
 class Datasets(Enum):
     MNIST = "MNIST"
-    CIFAR10 = "CIFAR10"
     WEATHER = "WEATHER"
     EMNIST = "EMNIST"
 
 EMPTY_TENSOR_KEY = "_empty"
 
 def X_key(dataset: Datasets):
-    return 0 if dataset == Datasets.WEATHER else "image" if dataset == Datasets.MNIST or dataset == Datasets.EMNIST  else "img"
+    return 0 if dataset == Datasets.WEATHER else "image"
 
 def y_key(dataset: Datasets):
     return 1 if dataset == Datasets.WEATHER else "label"
@@ -23,7 +22,7 @@ def read_toml(item):
         config_dict = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
 
     if item == "dataset":
-        return Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.CIFAR10 if config_dict["dataset"] == "CIFAR10" else Datasets.MNIST
+        return Datasets.EMNIST if config_dict["dataset"] == "EMNIST" else Datasets.WEATHER if config_dict["dataset"] == "WEATHER" else Datasets.MNIST
     else:
         return config_dict[item]
 

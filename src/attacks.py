@@ -22,8 +22,8 @@ def scale_update(old_weights: OrderedDict, new_weights: OrderedDict, scaling_fac
 
 def malicious_update(private_model, optimizer, private_train_loader, context):
     local_epochs = context.run_config["local-epochs"]
-    dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
-    device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10) else "cpu"
+    dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.MNIST
+    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
     criterion = model_loading.loss()
     new_state_dict: OrderedDict
     if context.run_config["attack-type"] == "LABELFLIP":
@@ -94,7 +94,7 @@ def lit_attack_update(malicious_ids: list[int], global_params: ArrayRecord, num_
 
     #calculating mu and sigma
     honest_params: list[torch.Tensor] = []
-    device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10) else "cpu"
+    device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
     global_model_state: OrderedDict = global_params.to_torch_state_dict()
     num_model_params = sum([tensor.numel() for _, tensor in global_model_state.items()])
     criterion = model_loading.loss() #use real loss function for now

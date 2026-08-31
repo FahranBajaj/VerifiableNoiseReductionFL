@@ -26,7 +26,7 @@ from src import feddmc, util, model_loading, ckks, attacks
 from src.normality_tests import jarque_bera
 import src.config
 
-class ZKFLStrategy(FedAvg):
+class NRFLStrategy(FedAvg):
     def __init__(
         self,
         fraction_train: float = 1.0,

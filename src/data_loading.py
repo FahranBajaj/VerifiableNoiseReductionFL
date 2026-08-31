@@ -87,32 +87,12 @@ emnist_transforms = Compose([
     Normalize((0.1736,), (0.3317,))
 ])
 
-cifar_train_transforms = Compose([
-    ToTensor(), 
-    RandomCrop(24), 
-    RandomHorizontalFlip(), 
-    ColorJitter(brightness = 0.6, contrast = 0.8), 
-    Normalize((0,0,0), (1,1,1))
-])
-
-cifar_test_transforms = Compose([
-    ToTensor(), 
-    CenterCrop(24), 
-    RandomHorizontalFlip(), 
-    ColorJitter(brightness = 0.6, contrast = 0.8), 
-    Normalize((0,0,0), (1,1,1))
-])
-
 def transform_mnist(batch):
     batch["image"] = [mnist_transforms(image) for image in batch["image"]]
     return batch
 
 def transform_emnist(batch):
     batch["image"] = [emnist_transforms(image) for image in batch["image"]]
-    return batch
-
-def transform_cifar_train(batch):
-    batch["img"] = [cifar_train_transforms(image) for image in batch["img"]]
     return batch
 
 federated_dataset: FederatedDataset | WeatherDataset = None
@@ -135,7 +115,7 @@ def get_dataset(partition_id: int, num_partitions: int, batch_size: int):
         else:
             partitioner = DirichletPartitioner(num_partitions, "label", concentration_parameter, min_partition_size = 2*batch_size, seed = 42)
             federated_dataset = FederatedDataset(
-                dataset = "uoft-cs/cifar10" if dataset == Datasets.CIFAR10 else "ylecun/mnist",
+                dataset = "ylecun/mnist",
                 partitioners = {"train": partitioner}
             )
     
@@ -143,7 +123,7 @@ def get_dataset(partition_id: int, num_partitions: int, batch_size: int):
     if dataset == Datasets.WEATHER:
         partition = federated_dataset.load_partition(partition_id)
     else: 
-        partition = federated_dataset.load_partition(partition_id).with_transform(transform_emnist if dataset == Datasets.EMNIST else transform_cifar_train if dataset == Datasets.CIFAR10 else transform_mnist)
+        partition = federated_dataset.load_partition(partition_id).with_transform(transform_emnist if dataset == Datasets.EMNIST else transform_mnist)
 
     return partition
 
@@ -163,15 +143,13 @@ def load_full_dataset(test: bool = True):
     if (test_dataset if test else train_dataset) is None:
         if dataset == Datasets.EMNIST:
             new_dataset = torchvision.datasets.EMNIST(root = 'data/', download = True, transform = emnist_transforms, split = "byclass", train = not test)
-        elif dataset == Datasets.CIFAR10:
-            new_dataset = torchvision.datasets.CIFAR10(root = 'data/', download = False, transform = cifar_test_transforms, train = not test)
         elif dataset == Datasets.WEATHER:
             global federated_dataset
             if federated_dataset is None:
                 federated_dataset = WeatherDataset(seed = 42)
             new_dataset = federated_dataset.load_full_data(test)
         else:
-            new_dataset = torchvision.datasets.MNIST(root = 'data/', download = False, transform = mnist_transforms, train = not test)
+            new_dataset = torchvision.datasets.MNIST(root = 'data/', download = True, transform = mnist_transforms, train = not test)
 
         if test:
             test_dataset = new_dataset

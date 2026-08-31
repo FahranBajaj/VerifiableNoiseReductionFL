@@ -62,8 +62,8 @@ def train(msg: Message, context: Context):
         clipping_norm = context.run_config["max-norm"]
         local_epochs = context.run_config["local-epochs"]
         batch_size = context.run_config["batch-size"]
-        dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.CIFAR10 if context.run_config["dataset"] == "CIFAR10" else Datasets.MNIST
-        device = torch.accelerator.current_accelerator().type if (torch.accelerator.is_available() and dataset != Datasets.CIFAR10) else "cpu"
+        dataset = Datasets.EMNIST if context.run_config["dataset"] == "EMNIST" else Datasets.WEATHER if context.run_config["dataset"] == "WEATHER" else Datasets.MNIST
+        device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
         if not ("RawWeights" in context.state.keys()):
             #need to train and compute local weights
             #load data
