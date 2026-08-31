@@ -1,3 +1,0 @@
-global-update-round,test-loss,test-accuracy,detection-accuracy,detection-precision,detection-recall
-0,0.6883367592208411,0.5414560852342576,,,
-1,0.5244037100337695,0.776351136001457,1.0,1.0,1.0
