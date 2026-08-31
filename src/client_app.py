@@ -93,7 +93,7 @@ def train(msg: Message, context: Context):
             })
 
             #train
-            if context.state["Malicious"]["Malicious"]:
+            if context.state["Malicious"]["Malicious"] and context.run_config["attack-type"] != "DIFFFLIP":
                 if context.run_config["attack-type"] == "LIT":
                     weights = pickle.loads(config["LIT-update"])
                 else:
@@ -113,7 +113,7 @@ def train(msg: Message, context: Context):
         noise_multiplier = config["noise-multiplier"] 
         trusted_parties = config["trusted-parties"]
         std = torch.ones_like(state)*noise_multiplier*learning_rate*clipping_norm*local_epochs/batch_size
-        if context.run_config["noise-reduction"] and context.state["Malicious"]["Malicious"]:
+        if context.run_config["noise-reduction"] and context.state["Malicious"]["Malicious"] and context.run_config["attack-type"] != "DIFFFLIP":
             std *= math.sqrt(1+(1/(trusted_parties - 1)))
         plaintext_weights = state + torch.normal(torch.zeros_like(state), std).to(device)
         context.state["NoisyWeights"] = ArrayRecord({"plaintext-weights": plaintext_weights})
@@ -121,13 +121,13 @@ def train(msg: Message, context: Context):
         empty_array_rec = ArrayRecord({}) #strategy expects exactly one array record per iteration
         config_rec: ConfigRecord
         if context.run_config["noise-reduction"]:
-            if not context.state["Malicious"]["Malicious"]:
+            if not context.state["Malicious"]["Malicious"] or context.run_config["attack-type"] == "DIFFFLIP":
                 trusted_multiplier = 1/math.sqrt(trusted_parties-1)
                 low_noise_weights = state + torch.normal(torch.zeros_like(state), std*trusted_multiplier).to(device)
             else:
                 low_noise_weights = state
                 
-            encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)
+            encrypted_differences = num_examples_record["num-examples"]*(low_noise_weights - plaintext_weights)*(-1 if (context.state["Malicious"]["Malicious"] and context.run_config["attack-type"] == "DIFFFLIP") else 1)
 
             #store plaintext weights, write reply
             encrypted_differences = ts.ckks_vector(ts.context_from(config["CKKS-context"]), encrypted_differences.cpu()).serialize()

@@ -73,7 +73,7 @@ def malicious_update(private_model, optimizer, private_train_loader, context):
             new_state_dict[layer_key] = layer_weights + (1-lambda_value)/(2*lambda_value)
     
     else:
-        raise ValueError("Unrecognized attack type (the LIT attack does not use this function)")
+        raise ValueError("Unrecognized attack type (the LIT and DIFFFLIP attacks does not use this function)")
 
     return ArrayRecord({"raw-weights": util.state_dict_to_vec(new_state_dict)})
 

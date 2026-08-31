@@ -24,7 +24,8 @@ ATTACK_TYPES: list[str] = [
     "GAUSSIAN",
     "LIT",
     "SCALING",
-    "ADAPTIVE"
+    "ADAPTIVE",
+    "DIFFFLIP"
 ]
 
 # Create ServerApp
