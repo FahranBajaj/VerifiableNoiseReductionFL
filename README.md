@@ -6,7 +6,9 @@ This is the official repository for the paper "Verifiable Noise Reduction for Pr
 * ``use-feddmc = false``
 
 Similarly, to enable FedDMC, use the above settings with ``use-feddmc = true``, and for FedDMC with standard DP, use ``use-feddmc = true`` and ``use-dp = true``. Finally, to run the efficiency tests for the two-server protocol, replace the ``client_app.py`` and ``nrfl_strategy.py`` files in the ``src`` directory with the ones in ``timingTests/TwoServer``.
+## Suplementary Materials
 
+Detailed experimental results are contained in the ``results`` directory. Tables detailing results of robustness tests against the five attacks evaluated in the FedDMC paper are in ``results/supplementary_tables.pdf``. The file ``results/runinfo.csv`` lists experiment IDs and the parameters used in each experiment; for each experiment, the model loss/accuracy, as well as (when applicable) detection accuracy/precision/recall and attack success rate at each round of training in the csv named with the experiment's ID number.
 ## Citation
 
 TODO: add citation, make sure scripts and pyproject.toml are correct
